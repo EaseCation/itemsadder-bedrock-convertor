@@ -1,0 +1,28 @@
+{
+  "name": "itemsadder-bedrock-convertor",
+  "version": "1.0.0",
+  "description": "Convert addons between Items Adder and Bedrock",
+  "type": "module",
+  "dependencies": {
+    "@types/node": "^20.9.2",
+    "fs-extra": "^11.1.1",
+    "ia-vscode": "github:ItemsAdder/ia-vscode",
+    "json-schema-to-typescript": "^13.1.1",
+    "minecraft-bedrock-schemas": "github:Blockception/Minecraft-bedrock-json-schemas",
+    "strip-json-comments": "^5.0.1",
+    "yaml": "^2.3.4"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "jest": "^29.7.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
+  },
+  "scripts": {
+    "test": "jest",
+    "start": "ts-node dist/main.js",
+    "build": "tsc",
+    "prestart": "yarn build",
+    "dump": "tsc && ts-node dist/typings/typings-dump.js"
+  }
+}

@@ -11,12 +11,16 @@ declare namespace ItemsAdderPack {
 
     // 不在此程序做转换，因此只记录文件名和文件内容
     export type Model = {
-        modelsPath: string,
+        rootPath: string,
+        relativePath: string,
+        dirPath: string,
         path: string,
         content: JavaModel.Model
     };
 
     export type Texture = {
+        rootPath: string,
+        relativePath: string,
         dirPath: string,
         path: string,
         content: Buffer

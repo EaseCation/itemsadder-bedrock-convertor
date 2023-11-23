@@ -1,13 +1,12 @@
-import { Context, Converter } from "./Converter";
+import { Context, Parameters } from "./Converter";
 import { Pack } from "../typings/pack";
 import { FurnitureConverter } from "./FurnitureConverter.js";
 import { ModelConverter } from "./ModelConverter.js";
 import { BlockConverter } from "./BlockConverter.js";
-import { Block } from "../typings/bedrock/schemas/blocks";
 
-export const RootConverter: Converter<Pack.BedrockFullPack, Pack.ItemsAdderFullPack> = {
+export const RootConverter = {
 
-    convertToBedrock(pack: Pack.ItemsAdderFullPack): Pack.BedrockFullPack | undefined {
+    convertToBedrock(pack: Pack.ItemsAdderFullPack, parameter?: Parameters): Pack.BedrockFullPack | undefined {
         const result: Pack.BedrockFullPack = {
             namespace: pack.namespace,
             resourcePack: {
@@ -32,6 +31,7 @@ export const RootConverter: Converter<Pack.BedrockFullPack, Pack.ItemsAdderFullP
             namespace: pack.namespace,
             fullPackBedrock: result,
             fullPackItemsAdder: pack,
+            parameters: parameter
         }
         // ===== ResourcePack =====
         // models
@@ -41,7 +41,7 @@ export const RootConverter: Converter<Pack.BedrockFullPack, Pack.ItemsAdderFullP
                 result.resourcePack.models.push(convert);
             }
         }
-        // textures
+        // textures 由具体的Block和Entity转换时添加
         /*for (let texture of pack.resourcePack.textures) {
             result.resourcePack.textures.push(texture);
         }*/
@@ -64,8 +64,10 @@ export const RootConverter: Converter<Pack.BedrockFullPack, Pack.ItemsAdderFullP
                             ...result.resourcePack.terrainTextures.texture_data,
                             ...furniture.block.terrain
                         }
-                        result.resourcePack.entities[furniture.entity.resource.description.identifier] = furniture.entity.resource;
-                        result.behaviourPack.entities[furniture.entity.resource.description.identifier] = furniture.entity.behaviour;
+                        if (furniture.entity) {
+                            result.resourcePack.entities[furniture.entity.resource.description.identifier] = furniture.entity.resource;
+                            result.behaviourPack.entities[furniture.entity.resource.description.identifier] = furniture.entity.behaviour;
+                        }
                     }
                 } else if (item.specific_properties && item.specific_properties.block) {
                     // block 纯方块
@@ -89,7 +91,7 @@ export const RootConverter: Converter<Pack.BedrockFullPack, Pack.ItemsAdderFullP
         return result;
     },
 
-    convertToJava(pack: Pack.BedrockFullPack): Pack.ItemsAdderFullPack | undefined {
+    convertToJava(pack: Pack.BedrockFullPack, parameter?: Parameters): Pack.ItemsAdderFullPack | undefined {
         // TODO
         return undefined;
     }

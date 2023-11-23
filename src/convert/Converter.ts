@@ -9,4 +9,9 @@ export type Context = {
     namespace: string,
     readonly fullPackBedrock: Pack.BedrockFullPack,
     readonly fullPackItemsAdder: Pack.ItemsAdderFullPack,
+    parameters?: Parameters
+}
+
+export type Parameters = {
+    furniture_force_entity?: boolean
 }

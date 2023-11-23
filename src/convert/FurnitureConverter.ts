@@ -15,63 +15,27 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
             return undefined;
         }
         const block: BedrockPack.Block = BlockConverter.convertToBedrock(item, context)!;
-        const entity: BedrockPack.Entity = {
-            resource: {
-                description: {
-                    identifier: `${context.namespace}:${item.id}`,
-                    materials: {default: "entity_alphatest"},
-                    geometry: {
-                        default: `geometry.${item.resource.model_path}`
-                    },
-                    textures: {
-                        default: `textures/entity/${item.resource.model_path}`
-                    },
-                    /*scripts: {
-                        animate: [
-                            `animation.${item.resource.model_path}.idle`
-                        ]
-                    },*/
-                    /*animations: {
-                        [`${item.resource.model_path}.idle`]: `animation.${item.resource.model_path}.idle`
-                    },*/
-                    render_controllers: [
-                        `controller.render.zombie`
-                    ]
-                }
-            },
-            behaviour: {
-                description: {
-                    identifier: `${context.namespace}:${item.id}`,
-                    is_spawnable: true,
-                    is_summonable: true
-                },
-                components: {
-                    "minecraft:health": {
-                        value: 1,
-                        max: 1
-                    },
-                    "minecraft:physics": {
-                        has_collision: false,
-                        has_gravity: false
-                    },
-                    "minecraft:movement": {
-                        value: 0
-                    },
-                    "minecraft:knockback_resistance": {
-                        value: 1
-                    }
-                }
-            }
-        }
-        let entityMode = false;
+
+        let entity: BedrockPack.Entity | undefined;
         // 模型 对于家具，不再设置模型，而是通过实体来展示
         if (item.resource.model_path) {
+            let bedrockModel: BedrockPack.Model | undefined;
             // 寻找材质包中的模型，然后修改模型路径为models/blocks/xxx.geo.json
             for (let model of context.fullPackBedrock.resourcePack.models) {
-                if (model.path.endsWith("/" + item.resource.model_path + ".geo.json")) {
-                    model.path = "models/blocks/" + path.basename(model.path);
-                    const modelContent = model.content["minecraft:geometry"][0];
-                    if (modelContent && modelContent.bones) {
+                if (model.path === path.join("models", item.resource.model_path + ".geo.json")) {
+                    model.path = path.join("models", "blocks", path.basename(model.path));
+                    bedrockModel = model;
+                    break;
+                }
+            }
+            if (bedrockModel) {
+                // 判断是否需要启用entityMode
+                const modelContent = bedrockModel.content["minecraft:geometry"][0];
+                if (modelContent && modelContent.bones) {
+                    let entityMode: boolean;
+                    if (context.parameters?.furniture_force_entity) {
+                        entityMode = true;
+                    } else {
                         // 判断模型是否超出大小
                         const range = [[0, 0, 0], [0, 0, 0]];
                         for (let bone of modelContent.bones) {
@@ -92,60 +56,109 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                                 range[1][2] = Math.max(range[1][2], maxZ);
                             }
                         }
-                        if (range[1][0] - range[0][0] > 30 || range[1][1] - range[0][1] > 30 || range[1][2] - range[0][2] > 30) {
-                            console.warn(`模型 ${item.resource.model_path} 的大小超出了30格，可能会导致无法正常渲染`);
-                            entityMode = true;
+                        entityMode = range[1][0] - range[0][0] > 30 || range[1][1] - range[0][1] > 30 || range[1][2] - range[0][2] > 30;
+                        if (entityMode) {
+                            console.warn(`The furniture model ${item.resource.model_path} exceeds 30 blocks, registered as a custom entity.`);
                         }
                     }
-                    // break;
+                    if (entityMode) {
+                        entity = {
+                            resource: {
+                                description: {
+                                    identifier: `${context.namespace}:${item.id}`,
+                                    materials: {default: "entity_alphatest"},
+                                    geometry: {
+                                        default: modelContent.description.identifier
+                                    },
+                                    textures: {
+                                        default: `textures/entity/${item.resource.model_path}`
+                                    },
+                                    /*scripts: {
+                                        animate: [
+                                            `animation.${item.resource.model_path}.idle`
+                                        ]
+                                    },*/
+                                    /*animations: {
+                                        [`${item.resource.model_path}.idle`]: `animation.${item.resource.model_path}.idle`
+                                    },*/
+                                    render_controllers: [
+                                        `controller.render.zombie`
+                                    ]
+                                }
+                            },
+                            behaviour: {
+                                description: {
+                                    identifier: `${context.namespace}:${item.id}`,
+                                    is_spawnable: true,
+                                    is_summonable: true
+                                },
+                                components: {
+                                    "minecraft:health": {
+                                        value: 1,
+                                        max: 1
+                                    },
+                                    "minecraft:physics": {
+                                        has_collision: false,
+                                        has_gravity: false
+                                    },
+                                    "minecraft:movement": {
+                                        value: 0
+                                    },
+                                    "minecraft:knockback_resistance": {
+                                        value: 1
+                                    }
+                                }
+                            }
+                        };
+                    }
+                }
+                if (entity) {
+                    // 模型过大，无法正常显示，使用实体模式
+                    block.terrain["void"] = {textures: ""}
+                    block.resource.textures = "void";
+                } else {
+                    // 正常显示
+                    block.behaviour.components["minecraft:geometry"] = modelContent.description.identifier;
                 }
             }
-            if (entityMode) {
-                // 模型过大，无法正常显示，使用实体模式
-                block.terrain["void"] = { textures: "" }
-                block.resource.textures = "void";
-            } else {
-                // 正常显示
-                block.behaviour.components["minecraft:geometry"] = `geometry.${item.resource.model_path}`;
-            }
-        }
-        // 音效
-        if (item.behaviours.furniture.sound) {
-            // sound
-            if (item.behaviours.furniture.sound) {
-                if (item.behaviours.furniture.sound.break) {
-                    block.resource.sound = item.behaviours.furniture.sound.break.name;
-                } else if (item.behaviours.furniture.sound.place) {
-                    block.resource.sound = item.behaviours.furniture.sound.place.name;
-                }
-            }
+
         }
         // 寻找模型的材质
-        for (let originModel of context.fullPackItemsAdder.resourcePack.models) {
-            //使用path获得originModel.path的去除后缀名的文件名
-            const originModelName = path.basename(originModel.path, path.extname(originModel.path));
-            if (originModelName !== item.resource.model_path) {
-                continue;
-            }
-            // 去除后缀名
-            const matchingName = Object.values(originModel.content.textures)[0].split(":").pop();
-            // 寻找texture
-            for (let texture of context.fullPackItemsAdder.resourcePack.textures) {
-                const textureFileName = path.basename(texture.path);
-                const textureName = textureFileName.split(".")[0];
-                if (matchingName === textureName) {
-                    if (entityMode) {
-                        // ==== 自定义实体 ====
-                        if (entity.resource.description && entity.resource.description.textures) {
-                            entity.resource.description.textures['default'] = `textures/entity/${textureName}`;
-                            // 添加textures
-                            context.fullPackBedrock.resourcePack.textures.push({
-                                dirPath: "textures/entity",
-                                path: "textures/entity/" + path.basename(texture.path),
-                                content: texture.content
-                            });
-                        }
+        // 寻找对应的模型并设置模型ID
+        const foundJavaModel = context.fullPackItemsAdder.resourcePack.models
+            .filter(model => model.relativePath.split(".")[0] === item.resource.model_path);
+        const javaModel = foundJavaModel[0];
+        if (javaModel) {
+            const textures = context.fullPackItemsAdder.resourcePack.textures.filter(texture => {
+                const texturePath = texture.relativePath.split(".")[0];
+                return Object.values(javaModel.content.textures).filter(t => t.split(":").pop() === texturePath).length > 0;
+            });
+            for (let texture of textures) {
+                const textureName = path.basename(texture.relativePath, path.extname(texture.relativePath));
+                // ==== 自定义实体 ====
+                if (entity) {
+                    if (entity.resource.description && entity.resource.description.textures) {
+                        entity.resource.description.textures['default'] = `textures/entity/${textureName}`;
+                        // 添加textures
+                        context.fullPackBedrock.resourcePack.textures.push({
+                            dirPath: "textures/entity",
+                            path: "textures/entity/" + path.basename(texture.path),
+                            content: texture.content
+                        });
                     }
+                    // 临时方案：手持贴图
+                    // 添加到terrain
+                    block.terrain[textureName] = {
+                        textures: "textures/entity/" + path.basename(texture.path)
+                    };
+                    block.resource.carried_textures = textureName;
+                    const materialInstance: MaterialInstance = {
+                        render_method: "alpha_test"
+                    };
+                    block.behaviour.components["minecraft:material_instances"] = {
+                        "*": materialInstance
+                    };
+                } else {
                     // ==== 方块 ====
                     const materialInstance: MaterialInstance = {
                         texture: textureName,
@@ -168,10 +181,17 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                         path: "textures/blocks/" + path.basename(texture.path),
                         content: texture.content
                     });
-                    if (entityMode) {
-                        // 临时方案：手持贴图
-                        block.resource.carried_textures = textureName;
-                    }
+                }
+            }
+        }
+        // 音效
+        if (item.behaviours.furniture.sound) {
+            // sound
+            if (item.behaviours.furniture.sound) {
+                if (item.behaviours.furniture.sound.break) {
+                    block.resource.sound = item.behaviours.furniture.sound.break.name;
+                } else if (item.behaviours.furniture.sound.place) {
+                    block.resource.sound = item.behaviours.furniture.sound.place.name;
                 }
             }
         }
@@ -191,9 +211,9 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
             }
             if (item.behaviours.furniture.hitbox.length || item.behaviours.furniture.hitbox.width || item.behaviours.furniture.hitbox.height) {
                 box.size = [
-                    Math.max(0, Math.min(16, (item.behaviours.furniture.hitbox.width || 0) * 16)),
-                    Math.max(0, Math.min(16, (item.behaviours.furniture.hitbox.height || 0) * 16)),
-                    Math.max(0, Math.min(16, (item.behaviours.furniture.hitbox.length || 0) * 16)),
+                    Math.max(0, Math.min(16, (item.behaviours.furniture.hitbox.width || 16) * 16)),
+                    Math.max(0, Math.min(16, (item.behaviours.furniture.hitbox.height || 16) * 16)),
+                    Math.max(0, Math.min(16, (item.behaviours.furniture.hitbox.length || 16) * 16)),
                 ];
             }
             block.behaviour.components["minecraft:collision_box"] = box;
@@ -217,7 +237,7 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                 conditions: [placementFilter]
             };
         }
-        if (entityMode) {
+        if (entity) {
             // 放置时召唤对应实体
             const eventPlace = `furniture_place_${item.id}`;
             const eventDestroy = `furniture_destroy_${item.id}`;
@@ -243,6 +263,47 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
         if (item.behaviours.furniture.solid === false) {
             block.behaviour.components["minecraft:collision_box"] = false;
         }
+        // 放置方向
+        //@ts-ignore
+        block.behaviour.description["traits"] = {
+            "minecraft:placement_direction": {
+                enabled_states: ["minecraft:cardinal_direction"]
+            }
+        }
+        block.behaviour.permutations = [
+            { // north
+                "condition": "query.block_state ('minecraft:cardinal_direction') == 'north'",
+                "components": {
+                    "minecraft:transformation": {
+                        "rotation": [0, 0, 0]
+                    }
+                }
+            },
+            { // south
+                "condition": "query.block_state ('minecraft:cardinal_direction') == 'south'",
+                "components": {
+                    "minecraft:transformation": {
+                        "rotation": [0, 180, 0]
+                    }
+                }
+            },
+            { // west
+                "condition": "query.block_state ('minecraft:cardinal_direction') == 'west'",
+                "components": {
+                    "minecraft:transformation": {
+                        "rotation": [0, 90, 0]
+                    }
+                }
+            },
+            { // east
+                "condition": "query.block_state ('minecraft:cardinal_direction') == 'east'",
+                "components": {
+                    "minecraft:transformation": {
+                        "rotation": [0, -90, 0]
+                    }
+                }
+            }
+        ]
         return {block: block, entity: entity};
     },
 

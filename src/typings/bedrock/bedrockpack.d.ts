@@ -102,7 +102,7 @@ declare namespace BedrockPack {
     // 家具有一些特殊，需要额外注册为实体
     export type Furniture = {
         block: Block,
-        entity: Entity
+        entity?: Entity
     }
 
     export type Texture = {

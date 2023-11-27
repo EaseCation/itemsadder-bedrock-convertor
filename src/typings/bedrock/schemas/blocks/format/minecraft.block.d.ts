@@ -496,6 +496,7 @@ export interface Component {
   "minecraft:on_step_on"?: OnStepOn;
   "minecraft:queued_ticking"?: RandomTicking;
   "minecraft:random_ticking"?: RandomTicking1;
+  "minecraft:rideable"?: MinecraftRideable;
 }
 /**
  * [Experimental] Makes your block into a custom crafting table which enables the crafting table UI and the ability to craft recipes.
@@ -650,6 +651,7 @@ export interface Permutation {
   condition?: Condition9;
   components?: Component1;
 }
+
 /**
  * UNDOCUMENTED.
  */

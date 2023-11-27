@@ -54,15 +54,17 @@ export const RootConverter = {
                     // furniture 家具
                     const furniture = FurnitureConverter.convertToBedrock(item, context);
                     if (furniture) {
-                        if (furniture.block.text) {
-                            result.resourcePack.texts['en_US'][`tile.${furniture.block.behaviour.description.identifier}.name`] = furniture.block.text;
-                        }
-                        result.behaviourPack.blocks.push(furniture.block.behaviour);
-                        const { id, ...resourceWithoutId } = furniture.block.resource;
-                        result.resourcePack.blocks[furniture.block.resource.id] = resourceWithoutId;
-                        result.resourcePack.terrainTextures.texture_data = {
-                            ...result.resourcePack.terrainTextures.texture_data,
-                            ...furniture.block.terrain
+                        if (furniture.block) {
+                            if (furniture.block.text) {
+                                result.resourcePack.texts['en_US'][`tile.${furniture.block.behaviour.description.identifier}.name`] = furniture.block.text;
+                            }
+                            result.behaviourPack.blocks.push(furniture.block.behaviour);
+                            const { id, ...resourceWithoutId } = furniture.block.resource;
+                            result.resourcePack.blocks[furniture.block.resource.id] = resourceWithoutId;
+                            result.resourcePack.terrainTextures.texture_data = {
+                                ...result.resourcePack.terrainTextures.texture_data,
+                                ...furniture.block.terrain
+                            }
                         }
                         if (furniture.entity) {
                             result.resourcePack.entities[furniture.entity.resource.description.identifier] = furniture.entity.resource;

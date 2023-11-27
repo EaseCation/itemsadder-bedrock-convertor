@@ -13,5 +13,6 @@ export type Context = {
 }
 
 export type Parameters = {
-    furniture_force_entity?: boolean
+    furniture_force_entity?: boolean,  // 默认false，强制将家具注册为实体，方块则只用于放置实体
+    furniture_production?: boolean,  // 默认false，启用后，不注册用于放置的方块或物品
 }

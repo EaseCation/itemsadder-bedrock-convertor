@@ -7,6 +7,11 @@ import WithId = ItemsAdderPack.WithId;
 import { TerrainTextureFile, TextureData } from "./schemas/textures/terrain_texture";
 import { ManifestV2Schema } from "./schemas/manifest/manifest.2";
 import { ClientEntity } from "./schemas/entity/1.10.0/entity";
+import {
+    RenderController,
+    RenderControllers,
+    RenderControllers1
+} from "./schemas/render_controllers/render_controllers";
 
 declare namespace BedrockPack {
 
@@ -84,6 +89,27 @@ declare namespace BedrockPack {
                 value?: number,
                 max?: number
             }
+            "minecraft:rideable"?: {
+                controlling_seat?: number;
+                crouching_skip_interact?: boolean;
+                family_types?: any[]; // Replace 'any' with the appropriate type if known
+                interact_text?: string;
+                passenger_max_width?: number;
+                priority?: number;
+                pull_in_entities?: boolean;
+                rider_can_interact?: boolean;
+                seat_count: number;
+                seats: {
+                    lock_rider_rotation?: number;
+                    max_rider_count?: number;
+                    min_rider_count?: number;
+                    position?: [number, number, number];
+                    rotate_rider_by?: number | string;
+                }[];
+            };
+            "minecraft:is_immobile"?: {
+                value: boolean;
+            }
             [key: string]: any
         },
         component_groups?: {
@@ -96,12 +122,15 @@ declare namespace BedrockPack {
 
     export type Entity = {
         resource: ClientEntity,
-        behaviour: EntityBehaviour
+        behaviour: EntityBehaviour,
+        render_controllers: {
+            [k: string]: RenderController;
+        }
     }
 
     // 家具有一些特殊，需要额外注册为实体
     export type Furniture = {
-        block: Block,
+        block?: Block,
         entity?: Entity
     }
 

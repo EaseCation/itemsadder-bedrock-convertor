@@ -36,7 +36,7 @@ export const ParserItemsAdderFullPack: IPackParser<Pack.ItemsAdderFullPack> = {
             const resourcePacks = ParserItemsAdderResourcePack.parse(path.join(pathStr, "resource_pack"));
             // 如果包含多个namespace，则报错提示暂不支持
             if (Object.keys(itemsPacks).length > 1) {
-                throw new Error("Multiple namespaces are not supported yet.");
+                throw new Error("Multiple namespaces are not supported yet. " + pathStr);
             }
             // 只取第一个
             return {
@@ -78,7 +78,7 @@ export const ParserItemsAdderFullPack: IPackParser<Pack.ItemsAdderFullPack> = {
             const resourcePacks = ParserItemsAdderResourcePack.parse(path.join(pathStr, "resourcepack"));
             // 如果包含多个namespace，则报错提示暂不支持
             if (Object.keys(itemsPacks).length > 1) {
-                throw new Error("Multiple namespaces are not supported yet.");
+                throw new Error("Multiple namespaces are not supported yet. " + pathStr);
             }
             // 只取第一个
             return {
@@ -88,7 +88,7 @@ export const ParserItemsAdderFullPack: IPackParser<Pack.ItemsAdderFullPack> = {
             }
         }
 
-        throw new Error("Unknown ItemsAdder pack format.");
+        throw new Error("Unknown ItemsAdder pack format. " + pathStr);
     }
 
 }

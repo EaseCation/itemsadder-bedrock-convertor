@@ -14,7 +14,12 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
         if (!item.behaviours?.furniture || !context) {
             return undefined;
         }
-        const block: BedrockPack.Block = BlockConverter.convertToBedrock(item, context)!;
+        let block: BedrockPack.Block | undefined;
+        if (context.parameters?.furniture_production) {
+            block = undefined;
+        } else {
+            block = BlockConverter.convertToBedrock(item, context);
+        }
 
         let entity: BedrockPack.Entity | undefined;
         // 模型 对于家具，不再设置模型，而是通过实体来展示
@@ -23,8 +28,16 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
             // 寻找材质包中的模型，然后修改模型路径为models/blocks/xxx.geo.json
             for (let model of context.fullPackBedrock.resourcePack.models) {
                 if (model.path === path.join("models", item.resource.model_path + ".geo.json")) {
-                    model.path = path.join("models", "blocks", path.basename(model.path));
+                    model.path = path.join("models", "blocks", context.namespace + "." + path.basename(model.path));
                     bedrockModel = model;
+                    // 为了防止多个namespace的模型冲突，修改模型id
+                    const identifier = model.content["minecraft:geometry"][0].description.identifier;
+                    const identifierSplit = identifier.split(".", 2);
+                    if (identifierSplit.length === 2) {
+                        model.content["minecraft:geometry"][0].description.identifier = `${identifierSplit[0]}.${context.namespace}.${identifierSplit[1]}`;
+                    } else {
+                        console.warn(`The model ${item.resource.model_path} has an invalid identifier: ${identifier}`);
+                    }
                     break;
                 }
             }
@@ -66,7 +79,7 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                             resource: {
                                 description: {
                                     identifier: `${context.namespace}:${item.id}`,
-                                    materials: {default: "entity_alphatest"},
+                                    materials: {default: "entity_alphablend"},
                                     geometry: {
                                         default: modelContent.description.identifier
                                     },
@@ -86,6 +99,7 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                                     ]
                                 }
                             },
+                            render_controllers: {},
                             behaviour: {
                                 description: {
                                     identifier: `${context.namespace}:${item.id}`,
@@ -112,23 +126,25 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                         };
                     }
                 }
-                if (entity) {
-                    // 模型过大，无法正常显示，使用实体模式
-                    block.terrain["void"] = {textures: ""}
-                    block.resource.textures = "void";
-                } else {
-                    // 正常显示
-                    block.behaviour.components["minecraft:geometry"] = modelContent.description.identifier;
+                if (block) {
+                    if (entity) {
+                        // 模型过大，无法正常显示，使用实体模式
+                        block.terrain["void"] = {textures: ""};
+                        block.resource.textures = "void";
+                    } else {
+                        // 正常显示
+                        block.behaviour.components["minecraft:geometry"] = modelContent.description.identifier;
+                    }
                 }
             }
-
         }
-        // 寻找模型的材质
-        // 寻找对应的模型并设置模型ID
+
+        // 找到对应的java模型
         const foundJavaModel = context.fullPackItemsAdder.resourcePack.models
             .filter(model => model.relativePath.split(".")[0] === item.resource.model_path);
         const javaModel = foundJavaModel[0];
         if (javaModel) {
+            // 基于原始模型，寻找对应的材质
             const textures = context.fullPackItemsAdder.resourcePack.textures.filter(texture => {
                 const texturePath = texture.relativePath.split(".")[0];
                 return Object.values(javaModel.content.textures).filter(t => t.split(":").pop() === texturePath).length > 0;
@@ -146,61 +162,76 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                             content: texture.content
                         });
                     }
-                    // 临时方案：手持贴图
-                    // 添加到terrain
-                    block.terrain[textureName] = {
-                        textures: "textures/entity/" + path.basename(texture.path)
-                    };
-                    block.resource.carried_textures = textureName;
-                    const materialInstance: MaterialInstance = {
-                        render_method: "alpha_test"
-                    };
-                    block.behaviour.components["minecraft:material_instances"] = {
-                        "*": materialInstance
-                    };
+                    if (block) {
+                        // 临时方案：手持贴图
+                        // 添加到terrain
+                        block.terrain[textureName] = {
+                            textures: "textures/entity/" + path.basename(texture.path, path.extname(texture.path))
+                        };
+                        block.resource.carried_textures = textureName;
+                        const materialInstance: MaterialInstance = {
+                            render_method: "alpha_test"
+                        };
+                        block.behaviour.components["minecraft:material_instances"] = {
+                            "*": materialInstance
+                        };
+                    }
                 } else {
                     // ==== 方块 ====
-                    const materialInstance: MaterialInstance = {
-                        texture: textureName,
-                        render_method: "alpha_test"
-                    };
-                    if (item.resource.material?.indexOf("GLASS") !== -1) {
-                        // 表示透明
-                        materialInstance.render_method = "blend";
+                    if (block) {
+                        const materialInstance: MaterialInstance = {
+                            texture: textureName,
+                            render_method: "alpha_test"
+                        };
+                        if (item.resource.material?.indexOf("GLASS") !== -1) {
+                            // 表示透明
+                            materialInstance.render_method = "blend";
+                        }
+                        block.behaviour.components["minecraft:material_instances"] = {
+                            "*": materialInstance
+                        };
+                        // 添加到terrain
+                        block.terrain[textureName] = {
+                            textures: "textures/blocks/" + textureName
+                        };
+                        // 添加textures
+                        context.fullPackBedrock.resourcePack.textures.push({
+                            dirPath: "textures/blocks",
+                            path: "textures/blocks/" + path.basename(texture.path),
+                            content: texture.content
+                        });
                     }
-                    block.behaviour.components["minecraft:material_instances"] = {
-                        "*": materialInstance
+                }
+            }
+            // 设置实体的scale（pc那边有1.6倍的缩放差距）
+            if (entity) {
+                const scale = javaModel.content.display.head?.scale;
+                if (scale) {  // 理论上要求三个轴都需要一样的缩放比例
+                    entity.behaviour.components["minecraft:scale"] = {
+                        value: scale[0] / 1.6
                     };
-                    // 添加到terrain
-                    block.terrain[textureName] = {
-                        textures: "textures/blocks/" + textureName
-                    };
-                    // 添加textures
-                    context.fullPackBedrock.resourcePack.textures.push({
-                        dirPath: "textures/blocks",
-                        path: "textures/blocks/" + path.basename(texture.path),
-                        content: texture.content
-                    });
+                } else {
+                    entity.behaviour.components["minecraft:scale"] = {
+                        value: 1 / 1.6
+                    }
                 }
             }
         }
         // 音效
-        if (item.behaviours.furniture.sound) {
+        if (block && item.behaviours.furniture.sound) {
             // sound
-            if (item.behaviours.furniture.sound) {
-                if (item.behaviours.furniture.sound.break) {
-                    block.resource.sound = item.behaviours.furniture.sound.break.name;
-                } else if (item.behaviours.furniture.sound.place) {
-                    block.resource.sound = item.behaviours.furniture.sound.place.name;
-                }
+            if (item.behaviours.furniture.sound.break) {
+                block.resource.sound = item.behaviours.furniture.sound.break.name;
+            } else if (item.behaviours.furniture.sound.place) {
+                block.resource.sound = item.behaviours.furniture.sound.place.name;
             }
         }
         // 发光
-        if (item.behaviours.furniture.light_level) {
+        if (block && item.behaviours.furniture.light_level) {
             block.behaviour.components["minecraft:light_emission"] = Math.min(15, item.behaviours.furniture.light_level);
         }
         // 碰撞箱
-        if (item.behaviours.furniture.hitbox) {
+        if (block && item.behaviours.furniture.hitbox) {
             const box: CollisionBox = {}
             if (item.behaviours.furniture.hitbox.length_offset || item.behaviours.furniture.hitbox.width_offset || item.behaviours.furniture.hitbox.height_offset) {
                 box.origin = [
@@ -215,12 +246,19 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                     Math.max(0, Math.min(16, (item.behaviours.furniture.hitbox.height || 16) * 16)),
                     Math.max(0, Math.min(16, (item.behaviours.furniture.hitbox.length || 16) * 16)),
                 ];
+                if (!box.origin) {
+                    box.origin = [
+                        -8 + (16 - box.size[0]) / 2,
+                        0,
+                        -8 + (16 - box.size[2]) / 2
+                    ]
+                }
             }
             block.behaviour.components["minecraft:collision_box"] = box;
             block.behaviour.components["minecraft:selection_box"] = box;
         }
         // 放置条件
-        if (item.behaviours.furniture.placeable_on) {
+        if (block && item.behaviours.furniture.placeable_on) {
             const placementFilter: PlacementFilter1 = {
                 allowed_faces: []
             }
@@ -237,7 +275,7 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                 conditions: [placementFilter]
             };
         }
-        if (entity) {
+        if (block && entity) {
             // 放置时召唤对应实体
             const eventPlace = `furniture_place_${item.id}`;
             const eventDestroy = `furniture_destroy_${item.id}`;
@@ -260,50 +298,71 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
             }
         }
         // solid 为false时，玩家可穿过方块
-        if (item.behaviours.furniture.solid === false) {
+        if (block && item.behaviours.furniture.solid === false) {
             block.behaviour.components["minecraft:collision_box"] = false;
         }
         // 放置方向
-        //@ts-ignore
-        block.behaviour.description["traits"] = {
-            "minecraft:placement_direction": {
-                enabled_states: ["minecraft:cardinal_direction"]
+        if (block && !entity) {
+            //@ts-ignore
+            block.behaviour.description["traits"] = {
+                "minecraft:placement_direction": {
+                    enabled_states: ["minecraft:cardinal_direction"]
+                }
+            };
+            block.behaviour.permutations = [
+                { // north
+                    "condition": "query.block_state ('minecraft:cardinal_direction') == 'north'",
+                    "components": {
+                        "minecraft:transformation": {
+                            "rotation": [0, 180, 0]
+                        }
+                    }
+                },
+                { // south
+                    "condition": "query.block_state ('minecraft:cardinal_direction') == 'south'",
+                    "components": {
+                        "minecraft:transformation": {
+                            "rotation": [0, 0, 0]
+                        }
+                    }
+                },
+                { // west
+                    "condition": "query.block_state ('minecraft:cardinal_direction') == 'west'",
+                    "components": {
+                        "minecraft:transformation": {
+                            "rotation": [0, -90, 0]
+                        }
+                    }
+                },
+                { // east
+                    "condition": "query.block_state ('minecraft:cardinal_direction') == 'east'",
+                    "components": {
+                        "minecraft:transformation": {
+                            "rotation": [0, 90, 0]
+                        }
+                    }
+                }
+            ]
+        }
+        // 可坐下
+        if (entity && item.behaviours.furniture_sit) {
+            const scale = entity.behaviour.components["minecraft:scale"]?.value || 1;
+            entity.behaviour.components["minecraft:rideable"] = {
+                seat_count: 1,
+                seats: [
+                    {
+                        position: [0, item.behaviours.furniture_sit.sit_height / scale, 0],
+                        lock_rider_rotation: 90,
+                        rotate_rider_by: item.behaviours.furniture_sit?.opposite_direction ? 0 : 180
+                    },
+                ]
             }
         }
-        block.behaviour.permutations = [
-            { // north
-                "condition": "query.block_state ('minecraft:cardinal_direction') == 'north'",
-                "components": {
-                    "minecraft:transformation": {
-                        "rotation": [0, 0, 0]
-                    }
-                }
-            },
-            { // south
-                "condition": "query.block_state ('minecraft:cardinal_direction') == 'south'",
-                "components": {
-                    "minecraft:transformation": {
-                        "rotation": [0, 180, 0]
-                    }
-                }
-            },
-            { // west
-                "condition": "query.block_state ('minecraft:cardinal_direction') == 'west'",
-                "components": {
-                    "minecraft:transformation": {
-                        "rotation": [0, 90, 0]
-                    }
-                }
-            },
-            { // east
-                "condition": "query.block_state ('minecraft:cardinal_direction') == 'east'",
-                "components": {
-                    "minecraft:transformation": {
-                        "rotation": [0, -90, 0]
-                    }
-                }
-            }
-        ]
+        // 禁止移动
+        if (entity) {
+            entity.behaviour.components["minecraft:is_immobile"] = { value: true }
+        }
+
         return {block: block, entity: entity};
     },
 

@@ -3,6 +3,7 @@ import { Item } from "../typings/itemsadder/schemas";
 import { ItemsAdderPack } from "../typings/itemsadder/itemsadderpack";
 import WithId = ItemsAdderPack.WithId;
 import { BedrockPack } from "../typings/bedrock/bedrockpack";
+import path from "path";
 
 export const BlockConverter: Converter<BedrockPack.Block, WithId<Item>> = {
 
@@ -39,14 +40,24 @@ export const BlockConverter: Converter<BedrockPack.Block, WithId<Item>> = {
             const textures = item.resource.textures as string[];
             if (textures.length === 1) {
                 // 单面的
-                block.terrain[`${item.id}`] = { textures: textures[0] };
+                block.terrain[`${item.id}`] = { textures: path.join("textures", textures[0].split(".")[0]) };
                 block.resource.textures = item.id;
+                // 从原始包中寻找texture
+                const texture = context.fullPackItemsAdder.resourcePack.textures.find(texture => texture.relativePath === textures[0]);
+                if (texture) {
+                    context.fullPackBedrock.resourcePack.textures.push({...texture, path: path.join("textures", texture.relativePath)});
+                }
             } else {
                 // 多面的
                 block.resource.textures = {}
                 for (let i = 0; i < textures.length; i++) {
                     const texture = textures[i];
-                    block.terrain[`${item.id}_${i}`] = { textures: texture };
+                    block.terrain[`${item.id}_${i}`] = { textures: path.join("textures", texture.split(".")[0]) };
+                    // 从原始包中寻找texture
+                    const textureOrigin = context.fullPackItemsAdder.resourcePack.textures.find(t => t.relativePath === texture);
+                    if (textureOrigin) {
+                        context.fullPackBedrock.resourcePack.textures.push({...textureOrigin, path: path.join("textures", textureOrigin.relativePath)});
+                    }
                     switch (i) {
                         case 0:
                             block.resource.textures.down = `${item.id}_${i}`;

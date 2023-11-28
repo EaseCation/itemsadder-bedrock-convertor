@@ -32,7 +32,7 @@ export const ModelConverter: Converter<BedrockPack.Model, ItemsAdderPack.Model> 
     convertToBedrock: (model): BedrockPack.Model | undefined => {
         const convertPath = checkConvertExists(model.rootPath);
         if (!convertPath) {
-            console.warn(`Can't find converted model file of ${model.relativePath}`);
+            console.warn(`Can't find converted model file of ${model.relativePath}. Please use the Blockbench plugin at https://github.com/EaseCation/itemsadder-bedrock-convertor to perform a batch conversion of the models first.`);
             return undefined;
         }
         // 得到相对路径

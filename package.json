@@ -8,6 +8,7 @@
     "archiver": "^6.0.1",
     "fs-extra": "^11.1.1",
     "ia-vscode": "github:ItemsAdder/ia-vscode",
+    "image-size": "^1.0.2",
     "json-schema-to-typescript": "^13.1.1",
     "minecraft-bedrock-schemas": "github:Blockception/Minecraft-bedrock-json-schemas",
     "strip-json-comments": "^5.0.1",

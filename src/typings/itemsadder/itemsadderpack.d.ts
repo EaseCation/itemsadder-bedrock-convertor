@@ -23,8 +23,17 @@ declare namespace ItemsAdderPack {
         relativePath: string,
         dirPath: string,
         path: string,
-        content: Buffer
+        resolution: {
+            width: number,
+            height: number
+        }
+        content: Buffer,
+        animation?: TextureAnimation
     };
+
+    export type TextureAnimation = {
+        frametime: number
+    }
 
     export type ResourcePack = {
         path?: string;

@@ -11,6 +11,7 @@ export const mergeBedrock = (namespace: string, packs: Pack.BedrockFullPack[]): 
             terrainTextures: {
                 texture_data: {}
             },
+            renderControllers: {},
             texts: {
                 "en_US": {}
             }
@@ -44,6 +45,10 @@ export const mergeBedrock = (namespace: string, packs: Pack.BedrockFullPack[]): 
         result.resourcePack.terrainTextures.texture_data = {
             ...result.resourcePack.terrainTextures.texture_data,
             ...pack.resourcePack.terrainTextures.texture_data
+        }
+        // renderControllers
+        for (let key in pack.resourcePack.renderControllers) {
+            result.resourcePack.renderControllers[key] = pack.resourcePack.renderControllers[key];
         }
         // texts
         for (let key in pack.resourcePack.texts) {

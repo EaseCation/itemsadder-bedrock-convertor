@@ -3,6 +3,11 @@ import fs from "fs";
 import path from "path";
 import { ItemsAdderPack } from "../../typings/itemsadder/itemsadderpack";
 import { JavaModel } from "../../typings/itemsadder/model";
+import sizeOf from 'image-size';
+
+const getResolution = (imagePath: string) => {
+    return sizeOf(imagePath);
+}
 
 const parseModels = (rootPath: string, modelsPath: string, models: ItemsAdderPack.Model[]): void => {
     const modelsFiles = fs.readdirSync(modelsPath);
@@ -36,12 +41,36 @@ const parseTextures = (rootPath: string, texturesPath: string, textures: ItemsAd
         if (stat.isDirectory()) {
             parseTextures(rootPath, fullPath, textures);
         } else if (stat.isFile() && (texture.endsWith(".png") || texture.endsWith(".tga"))) {
+            // 获取图片的分辨率
+            const resolution = getResolution(fullPath);
+            if (!resolution.width || !resolution.height) {
+                console.warn(`Texture ${fullPath} has no resolution, skip.`);
+                continue;
+            }
+            let animation: ItemsAdderPack.TextureAnimation | undefined = undefined;
+            // 判断同目录下是否文件名+.mcmeta的文件
+            const mcmetaPath = path.join(texturesPath, texture + ".mcmeta");
+            if (fs.existsSync(mcmetaPath)) {
+                // 如果存在，则读取内容
+                const mcmetaContent = JSON.parse(fs.readFileSync(mcmetaPath, "utf-8"));
+                // 如果内容中有animation字段，则认为是动画贴图
+                if (mcmetaContent.animation) {
+                    animation = {
+                        frametime: mcmetaContent.animation.frametime
+                    }
+                }
+            }
             textures.push({
                 rootPath: rootPath,
                 relativePath: path.relative(rootPath, fullPath),
                 dirPath: texturesPath,
                 path: fullPath,
-                content: fs.readFileSync(fullPath)
+                resolution: {
+                    width: resolution.width,
+                    height: resolution.height
+                },
+                content: fs.readFileSync(fullPath),
+                animation: animation
             });
         }
     }

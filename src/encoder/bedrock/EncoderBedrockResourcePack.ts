@@ -5,6 +5,10 @@ import path from "path";
 import { Blocks } from "../../typings/bedrock/schemas/blocks";
 import { randomUUID } from "crypto";
 import { ActorEntity1100 } from "../../typings/bedrock/schemas/entity/1.10.0/entity";
+import {
+    RenderControllers,
+    RenderControllers1
+} from "../../typings/bedrock/schemas/render_controllers/render_controllers";
 
 export const EncoderBedrockResourcePack: IPackEncoder<Pack.BedrockFullPack> = {
 
@@ -58,8 +62,13 @@ export const EncoderBedrockResourcePack: IPackEncoder<Pack.BedrockFullPack> = {
         if (resourcePack.models.length > 0) {
             fs.mkdirSync(path.join(targetPath, "models"));
             for (let model of resourcePack.models) {
-                if (!fs.existsSync(path.join(targetPath, path.dirname(model.path)))) {
-                    fs.mkdirSync(path.join(targetPath, path.dirname(model.path)));
+                try {
+                    if (!fs.existsSync(path.join(targetPath, path.dirname(model.path)))) {
+                        fs.mkdirSync(path.join(targetPath, path.dirname(model.path)));
+                    }
+                } catch (e) {
+                    console.log(model);
+                    console.error(e);
                 }
                 fs.createFileSync(path.join(targetPath, model.path));
                 fs.writeFileSync(path.join(targetPath, model.path), JSON.stringify(model.content, null, 2));
@@ -75,6 +84,27 @@ export const EncoderBedrockResourcePack: IPackEncoder<Pack.BedrockFullPack> = {
                     "minecraft:client_entity": resourcePack.entities[entity]
                 }
                 fs.writeFileSync(path.join(targetPath, "entity", entity.split(":").pop() + ".entity.json"), JSON.stringify(actorEntity, null, 2));
+            }
+        }
+
+        if (Object.keys(resourcePack.renderControllers).length > 0) {
+            fs.mkdirSync(path.join(targetPath, "render_controllers"));
+            for (let key in resourcePack.renderControllers) {
+                // 处理key，如果头部包含controller.render.，则去除
+                let file;
+                if (key.startsWith("controller.render.")) {
+                    file = path.join(targetPath, "render_controllers", key.substring("controller.render.".length) + ".render_controller.json");
+                } else {
+                    file = path.join(targetPath, "render_controllers", key + ".render_controller.json");
+                }
+                fs.createFileSync(file);
+                const renderControllers: RenderControllers1 = {}
+                renderControllers[key] = resourcePack.renderControllers[key];
+                const renderControllerFile: RenderControllers = {
+                    format_version: "1.8.0",
+                    render_controllers: renderControllers
+                };
+                fs.writeFileSync(file, JSON.stringify(renderControllerFile, null, 2));
             }
         }
 

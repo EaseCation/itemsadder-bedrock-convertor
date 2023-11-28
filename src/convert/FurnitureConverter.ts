@@ -7,6 +7,8 @@ import { BlockConverter } from "./BlockConverter.js";
 import { MaterialInstance } from "../typings/bedrock/schemas/blocks/blocks";
 import { CollisionBox, PlacementFilter1 } from "../typings/bedrock/schemas/blocks/format/minecraft.block";
 import path from "path";
+import { PartVisibility, PartVisibility1 } from "../typings/bedrock/schemas/render_controllers/render_controllers";
+import { JavaModel } from "../typings/itemsadder/model";
 
 export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> = {
 
@@ -83,9 +85,7 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                                     geometry: {
                                         default: modelContent.description.identifier
                                     },
-                                    textures: {
-                                        default: `textures/entity/${item.resource.model_path}`
-                                    },
+                                    textures: {},
                                     /*scripts: {
                                         animate: [
                                             `animation.${item.resource.model_path}.idle`
@@ -120,6 +120,10 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                                     },
                                     "minecraft:knockback_resistance": {
                                         value: 1
+                                    },
+                                    "minecraft:pushable": {
+                                        is_pushable: false,
+                                        is_pushable_by_piston: false
                                     }
                                 }
                             }
@@ -154,13 +158,105 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                 // ==== 自定义实体 ====
                 if (entity) {
                     if (entity.resource.description && entity.resource.description.textures) {
-                        entity.resource.description.textures['default'] = `textures/entity/${textureName}`;
-                        // 添加textures
-                        context.fullPackBedrock.resourcePack.textures.push({
-                            dirPath: "textures/entity",
-                            path: "textures/entity/" + path.basename(texture.path),
-                            content: texture.content
-                        });
+                        // 单贴图，直接默认贴上即可
+                        if (textures.length === 1) {
+                            entity.resource.description.textures['default'] = `textures/entity/${textureName}`;
+                            // 添加textures
+                            context.fullPackBedrock.resourcePack.textures.push({
+                                dirPath: "textures/entity",
+                                path: "textures/entity/" + path.basename(texture.path),
+                                content: texture.content
+                            });
+                        } else {
+                            // 多贴图的情况，需要扫描原始模型，找出所有使用这个贴图的的部位，看看是否在同一个bone中
+                            const textureId = Object.keys(javaModel.content.textures).find(key => {
+                                const texturePath = texture.relativePath.split(".")[0];
+                                return javaModel.content.textures[key].split(":").pop() === texturePath;
+                            });
+                            const textureIdMatch = "#" + textureId;
+                            const matchedCubes: number[] = [];
+                            for (let i = 0; i < javaModel.content.elements.length; i++) {
+                                const element = javaModel.content.elements[i];
+                                if (
+                                    (!element.faces.down || element.faces.down.texture === textureIdMatch)
+                                    && (!element.faces.up || element.faces.up.texture === textureIdMatch)
+                                    && (!element.faces.north || element.faces.north.texture === textureIdMatch)
+                                    && (!element.faces.south || element.faces.south.texture === textureIdMatch)
+                                    && (!element.faces.west || element.faces.west.texture === textureIdMatch)
+                                    && (!element.faces.east || element.faces.east.texture === textureIdMatch)
+                                ) {
+                                    matchedCubes.push(i);
+                                }
+                            }
+                            const matchedBones: string[] = [];
+                            if (matchedCubes.length > 0) {
+                                if (javaModel.content.groups.find(g => typeof g === 'number') !== undefined) {
+                                    // 根层存在独立的cube，发出警告
+                                    console.warn(`The model ${javaModel.relativePath} has independent cubes in root level, which may cause unexpected results.`);
+                                }
+                                const checkGroup = (group: JavaModel.ModelGroup) => {
+                                    if (group.children.every((value) => typeof value !== 'number' || matchedCubes.indexOf(value) !== -1)) {
+                                        if (matchedBones.indexOf(group.name) === -1) {
+                                            matchedBones.push(group.name);
+                                        }
+                                    }
+                                    for (let child of group.children) {
+                                        if (typeof child === "object") {
+                                            checkGroup(child);
+                                        }
+                                    }
+                                }
+                                for (let group of javaModel.content.groups) {
+                                    if (typeof group === "object") {
+                                        checkGroup(group);
+                                    }
+                                }
+                            }
+                            if (matchedBones.length > 0) {
+                                // console.log(`Found ${matchedBones.length} bones using texture ${textureId}(${textureName}) in model ${javaModel.relativePath}.`);
+                                // console.log(matchedBones);
+                                // 找到了bone，添加到render_controller中
+                                entity.resource.description.textures[textureName] = `textures/entity/${textureName}`;
+                                const partVisibility: PartVisibility = [
+                                    { "*": 0 }
+                                ];
+                                for (let matchedBone of matchedBones) {
+                                    const part: PartVisibility1 = {}
+                                    part[matchedBone] = 1;
+                                    partVisibility.push(part);
+                                }
+                                // 判断总帧数
+                                // 获取基准贴图的宽度和高度
+                                if (!javaModel.content.texture_size) {
+                                    console.warn(`The model ${javaModel.relativePath} has no texture_size, skip.`);
+                                    continue;
+                                }
+                                const baseWidth = javaModel.content.texture_size[0];
+                                const baseHeight = javaModel.content.texture_size[1];
+                                // 获取实际贴图的宽度和高度
+                                const actualWidth = texture.resolution.width;
+                                const actualHeight = texture.resolution.height;
+                                const frameHeight = actualWidth * baseHeight / baseWidth;
+                                let totalFrames = actualHeight / frameHeight;
+                                entity.render_controllers["controller.render." + textureName] = {
+                                    geometry: "Geometry.default",
+                                    materials: [ { "*": texture.animation ? "Material.animation" : "Material.default" } ],
+                                    textures: [ "Texture." + textureName ],
+                                    part_visibility: partVisibility,
+                                    uv_anim: texture.animation ? {
+                                        offset: [0, `math.mod(math.floor(query.life_time * ${texture.animation.frametime}), ${totalFrames}) / ${totalFrames}`],
+                                        scale: [1, `1 / ${totalFrames}`]
+                                    } : undefined
+                                }
+                                entity.resource.description.materials!['animation'] = "player_animated";
+                                // 添加textures
+                                context.fullPackBedrock.resourcePack.textures.push({
+                                    dirPath: "textures/entity",
+                                    path: "textures/entity/" + path.basename(texture.path),
+                                    content: texture.content
+                                });
+                            }
+                        }
                     }
                     if (block) {
                         // 临时方案：手持贴图
@@ -203,6 +299,7 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                     }
                 }
             }
+
             // 设置实体的scale（pc那边有1.6倍的缩放差距）
             if (entity) {
                 const scale = javaModel.content.display.head?.scale;
@@ -358,9 +455,10 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                 ]
             }
         }
-        // 禁止移动
-        if (entity) {
-            entity.behaviour.components["minecraft:is_immobile"] = { value: true }
+        // 实体动画控制器的应用
+        if (entity && Object.keys(entity.render_controllers).length > 0) {
+            // @ts-ignore
+            entity.resource.description.render_controllers = Object.keys(entity.render_controllers);
         }
 
         return {block: block, entity: entity};

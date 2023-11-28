@@ -17,6 +17,7 @@ export const RootConverter = {
                 terrainTextures: {
                     texture_data: {}
                 },
+                renderControllers: {},
                 texts: {
                     "en_US": {}
                 }
@@ -69,6 +70,9 @@ export const RootConverter = {
                         if (furniture.entity) {
                             result.resourcePack.entities[furniture.entity.resource.description.identifier] = furniture.entity.resource;
                             result.behaviourPack.entities[furniture.entity.resource.description.identifier] = furniture.entity.behaviour;
+                            for (let key in furniture.entity.render_controllers) {
+                                result.resourcePack.renderControllers[key] = furniture.entity.render_controllers[key];
+                            }
                         }
                     }
                 } else if (item.specific_properties && item.specific_properties.block) {

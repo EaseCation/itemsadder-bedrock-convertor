@@ -54,6 +54,15 @@ export declare namespace JavaModel {
         textures: Texture;
         elements: Element[];
         display: DisplayGroup;
+        groups: (number | ModelGroup)[];
+    }
+
+    export interface ModelGroup {
+        name: string,
+        origin: number[],
+        color: number,
+        nbt: string,
+        children: (number | ModelGroup)[]
     }
 
 }

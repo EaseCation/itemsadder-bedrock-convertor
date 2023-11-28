@@ -158,6 +158,9 @@ declare namespace BedrockPack {
         };
         textures: Texture[];
         terrainTextures: TerrainTextureFile;
+        renderControllers: {
+            [id: string]: RenderController;
+        };
         texts: {
             [language: string]: {
                 [key: string]: string

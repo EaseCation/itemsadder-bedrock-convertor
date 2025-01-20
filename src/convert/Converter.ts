@@ -1,8 +1,8 @@
 import { Pack } from "../typings/pack";
 
 export interface Converter<BEDROCK, JAVA> {
-    convertToJava: (value: BEDROCK, context?: Context) => JAVA | undefined;
-    convertToBedrock: (value: JAVA, context?: Context) => BEDROCK | undefined;
+    convertToJava: (value: BEDROCK, context?: Context) => Promise<JAVA | undefined>;
+    convertToBedrock: (value: JAVA, context?: Context) => Promise<BEDROCK | undefined>;
 }
 
 export type Context = {

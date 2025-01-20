@@ -9,10 +9,25 @@ import { CollisionBox, PlacementFilter1 } from "../typings/bedrock/schemas/block
 import path from "path";
 import { PartVisibility, PartVisibility1 } from "../typings/bedrock/schemas/render_controllers/render_controllers";
 import { JavaModel } from "../typings/itemsadder/model";
+import sharp from 'sharp';
+
+async function hasBinaryAlpha(buffer: Buffer) {
+    const image = sharp(buffer);
+    const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
+
+    for (let i = 0; i < data.length; i += info.channels) {
+        const alpha = info.channels === 4 ? data[i + 3] : 255;
+        if (alpha !== 0 && alpha !== 255) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> = {
 
-    convertToBedrock(item: WithId<Item>, context?: Context): BedrockPack.Furniture | undefined {
+    async convertToBedrock(item: WithId<Item>, context?: Context): Promise<BedrockPack.Furniture | undefined> {
         if (!item.behaviours?.furniture || !context) {
             return undefined;
         }
@@ -20,7 +35,7 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
         if (context.parameters?.furniture_production) {
             block = undefined;
         } else {
-            block = BlockConverter.convertToBedrock(item, context);
+            block = await BlockConverter.convertToBedrock(item, context);
         }
 
         let entity: BedrockPack.Entity | undefined;
@@ -81,7 +96,7 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                             resource: {
                                 description: {
                                     identifier: `${context.namespace}:${item.id}`,
-                                    materials: {default: "entity_alphablend"},
+                                    materials: {default: "entity_alphatest"},
                                     geometry: {
                                         default: modelContent.description.identifier
                                     },
@@ -108,8 +123,8 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                                 },
                                 components: {
                                     "minecraft:health": {
-                                        value: 1,
-                                        max: 1
+                                        value:  context.parameters?.furniture_production ? 20 : 1,
+                                        max: context.parameters?.furniture_production ? 20 : 1
                                     },
                                     "minecraft:physics": {
                                         has_collision: false,
@@ -128,6 +143,18 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                                 }
                             }
                         };
+                        if (context.parameters?.furniture_production) {
+                            entity.behaviour.components["minecraft:damage_sensor"] = {
+                                triggers: {
+                                    cause: "all",
+                                    deals_damage: false
+                                }
+                            }
+                            entity.behaviour.components["minecraft:collision_box"] = {
+                                height: 0,
+                                width: 0
+                            }
+                        }
                     }
                 }
                 if (block) {
@@ -167,6 +194,33 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                                 path: "textures/entity/" + path.basename(texture.path),
                                 content: texture.content
                             });
+                            // 从texture.content读取图片，判断是否有alpha非0或1的像素
+                            if (item.behaviours.furniture['bedrock_material']) {
+                                entity.resource.description.materials!['default'] = item.behaviours.furniture['bedrock_material'] as string;
+                            } else if (await hasBinaryAlpha(texture.content)) {
+                                entity.resource.description.materials!['default'] = "entity_alphablend";
+                            }
+                            // 序列帧的情况
+                            if (texture.animation) {
+                                const baseWidth = javaModel.content.texture_size[0];
+                                const baseHeight = javaModel.content.texture_size[1];
+                                // 获取实际贴图的宽度和高度
+                                const actualWidth = texture.resolution.width;
+                                const actualHeight = texture.resolution.height;
+                                const frameHeight = actualWidth * baseHeight / baseWidth;
+                                let totalFrames = actualHeight / frameHeight;
+                                entity.resource.description.materials!['default'] = "player_animated";
+                                entity.render_controllers["controller.render." + textureName] = {
+                                    geometry: "Geometry.default",
+                                    materials: [ { "*": "Material.default" } ],
+                                    textures: [ "Texture.default" ],
+                                    uv_anim: {
+                                        offset: [0, `math.mod(math.floor(query.life_time * ${texture.animation.frametime}), ${totalFrames}) / ${totalFrames}`],
+                                        scale: [1, `1 / ${totalFrames}`]
+                                    }
+                                }
+                                entity.resource.description.render_controllers = ["controller.render." + textureName];
+                            }
                         } else {
                             // 多贴图的情况，需要扫描原始模型，找出所有使用这个贴图的的部位，看看是否在同一个bone中
                             const textureId = Object.keys(javaModel.content.textures).find(key => {
@@ -238,9 +292,15 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                                 const actualHeight = texture.resolution.height;
                                 const frameHeight = actualWidth * baseHeight / baseWidth;
                                 let totalFrames = actualHeight / frameHeight;
+                                const alphablend = await hasBinaryAlpha(texture.content);
+                                if (item.behaviours.furniture['bedrock_material']) {
+                                    entity.resource.description.materials!['default'] = item.behaviours.furniture['bedrock_material'] as string;
+                                } else if (alphablend) {
+                                    entity.resource.description.materials!['alphablend'] = "entity_alphablend";
+                                }
                                 entity.render_controllers["controller.render." + textureName] = {
                                     geometry: "Geometry.default",
-                                    materials: [ { "*": texture.animation ? "Material.animation" : "Material.default" } ],
+                                    materials: [ { "*": texture.animation ? "Material.animation" : (alphablend ? "Material.alphablend" : "Material.default") } ],
                                     textures: [ "Texture." + textureName ],
                                     part_visibility: partVisibility,
                                     uv_anim: texture.animation ? {
@@ -255,6 +315,8 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
                                     path: "textures/entity/" + path.basename(texture.path),
                                     content: texture.content
                                 });
+                            } else {
+                                console.warn(`The model ${javaModel.relativePath} (multi textures) has no bones complete using texture #${textureId}(${textureName}), skip.`);
                             }
                         }
                     }
@@ -302,14 +364,47 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
 
             // 设置实体的scale（pc那边有1.6倍的缩放差距）
             if (entity) {
-                const scale = javaModel.content.display.head?.scale;
-                if (scale) {  // 理论上要求三个轴都需要一样的缩放比例
+                if (item.behaviours.furniture['bedrock_scale']) {
+                    // 基岩版特殊缩放比例
                     entity.behaviour.components["minecraft:scale"] = {
-                        value: scale[0] / 1.6
+                        value: item.behaviours.furniture['bedrock_scale'] as number
                     };
                 } else {
-                    entity.behaviour.components["minecraft:scale"] = {
-                        value: 1 / 1.6
+                    const scale = javaModel.content.display.head?.scale;
+                    if (scale) {  // 理论上要求三个轴都需要一样的缩放比例
+                        entity.behaviour.components["minecraft:scale"] = {
+                            value: scale[0] / 1.6
+                        };
+                    } else {
+                        entity.behaviour.components["minecraft:scale"] = {
+                            value: 1 / 1.6
+                        }
+                    }
+                }
+                if (item.behaviours.furniture['bedrock_ignore_lighting']) {
+                    if (Object.keys(entity.render_controllers).length == 0) {
+                        entity.render_controllers["controller.render." + item.id] = {
+                            geometry: "Geometry.default",
+                            materials: [ { "*": "Material.default" } ],
+                            textures: [ "Texture.default" ]
+                        }
+                        entity.resource.description.render_controllers = ["controller.render." + item.id];
+                    }
+                    for (let controller in entity.render_controllers) {
+                        entity.render_controllers[controller].ignore_lighting = true;
+                    }
+                }
+                if (item.behaviours.furniture['bedrock_light_color_multiplier']) {
+                    if (Object.keys(entity.render_controllers).length == 0) {
+                        entity.render_controllers["controller.render." + item.id] = {
+                            geometry: "Geometry.default",
+                            materials: [ { "*": "Material.default" } ],
+                            textures: [ "Texture.default" ]
+                        }
+                        entity.resource.description.render_controllers = ["controller.render." + item.id];
+                    }
+                    for (let controller in entity.render_controllers) {
+                        entity.render_controllers[controller].light_color_multiplier = item.behaviours.furniture['bedrock_light_color_multiplier'] as number;
                     }
                 }
             }
@@ -464,7 +559,7 @@ export const FurnitureConverter: Converter<BedrockPack.Furniture, WithId<Item>> 
         return {block: block, entity: entity};
     },
 
-    convertToJava(block: BedrockPack.Furniture, context?: Context): WithId<Item> | undefined {
+    async convertToJava(block: BedrockPack.Furniture, context?: Context): Promise<WithId<Item> | undefined> {
         // TODO
         return undefined;
     }

@@ -6,7 +6,7 @@ import { BlockConverter } from "./BlockConverter.js";
 
 export const RootConverter = {
 
-    convertToBedrock(pack: Pack.ItemsAdderFullPack, parameter?: Parameters): Pack.BedrockFullPack | undefined {
+    async convertToBedrock(pack: Pack.ItemsAdderFullPack, parameter?: Parameters): Promise<Pack.BedrockFullPack | undefined> {
         const result: Pack.BedrockFullPack = {
             namespace: pack.namespace,
             resourcePack: {
@@ -37,7 +37,7 @@ export const RootConverter = {
         // ===== ResourcePack =====
         // models
         for (let model of pack.resourcePack.models) {
-            const convert = ModelConverter.convertToBedrock(model);
+            const convert = await ModelConverter.convertToBedrock(model);
             if (convert) {
                 result.resourcePack.models.push(convert);
             }
@@ -53,7 +53,7 @@ export const RootConverter = {
                 const item = pack.itemsPack.items[key];
                 if (item.behaviours && item.behaviours.furniture) {
                     // furniture 家具
-                    const furniture = FurnitureConverter.convertToBedrock(item, context);
+                    const furniture = await FurnitureConverter.convertToBedrock(item, context);
                     if (furniture) {
                         if (furniture.block) {
                             if (furniture.block.text) {
@@ -78,7 +78,7 @@ export const RootConverter = {
                 } else if (item.specific_properties && item.specific_properties.block) {
                     // block 纯方块
                     // furniture 家具
-                    const block = BlockConverter.convertToBedrock(item, context);
+                    const block = await BlockConverter.convertToBedrock(item, context);
                     if (block) {
                         if (block.text) {
                             result.resourcePack.texts['en_US'][`tile.${block.behaviour.description.identifier}.name`] = block.text;
@@ -97,7 +97,7 @@ export const RootConverter = {
         return result;
     },
 
-    convertToJava(pack: Pack.BedrockFullPack, parameter?: Parameters): Pack.ItemsAdderFullPack | undefined {
+    async convertToJava(pack: Pack.BedrockFullPack, parameter?: Parameters): Promise<Pack.ItemsAdderFullPack | undefined> {
         // TODO
         return undefined;
     }

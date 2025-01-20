@@ -7,7 +7,7 @@ import path from "path";
 
 export const BlockConverter: Converter<BedrockPack.Block, WithId<Item>> = {
 
-    convertToBedrock(item: WithId<Item>, context?: Context): BedrockPack.Block | undefined {
+    async convertToBedrock(item: WithId<Item>, context?: Context): Promise<BedrockPack.Block | undefined> {
         if (!context) {
             return undefined;
         }
@@ -46,6 +46,8 @@ export const BlockConverter: Converter<BedrockPack.Block, WithId<Item>> = {
                 const texture = context.fullPackItemsAdder.resourcePack.textures.find(texture => texture.relativePath === textures[0]);
                 if (texture) {
                     context.fullPackBedrock.resourcePack.textures.push({...texture, path: path.join("textures", texture.relativePath)});
+                } else {
+                    console.warn(`Can't find texture ${textures[0]} in original pack.`);
                 }
             } else {
                 // 多面的
@@ -90,11 +92,30 @@ export const BlockConverter: Converter<BedrockPack.Block, WithId<Item>> = {
                     block.resource.sound = item.specific_properties.block.sound.place.name;
                 }
             }
+            // hardness
+            if (item.specific_properties.block.hardness) {
+                block.behaviour.components["minecraft:destroy_time"] = item.specific_properties.block.hardness
+            } else {
+                block.behaviour.components["minecraft:destroy_time"] = 1.0
+            }
+            // transparent
+            if (item.specific_properties.block.placed_model && item.specific_properties.block.placed_model.type) {
+                if (item.specific_properties.block.placed_model.type == 'REAL_TRANSPARENT') {
+                    block.behaviour.components["minecraft:material_instances"] = {
+                        "*": {
+                            render_method: "alpha_test"
+                        }
+                    };
+                    block.behaviour.components["netease:render_layer"] = "optionalAlpha";
+                    block.behaviour.components["netease:no_crop_face_block"] = {}
+                    block.behaviour.components["minecraft:light_dampening"] = 0;  // 透明方块不会遮挡光线
+                }
+            }
         }
         return block;
     },
 
-    convertToJava(block: BedrockPack.Block, context?: Context): WithId<Item> | undefined {
+    async convertToJava(block: BedrockPack.Block, context?: Context): Promise<WithId<Item> | undefined> {
         return undefined;
     }
 

@@ -55,7 +55,7 @@ export type Sound = string;
 /**
  * Textures.
  */
-export type Sound1 =
+export type BlockTextures =
   | string
   | {
       down?: string;
@@ -82,5 +82,5 @@ export interface Block {
   carried_textures?: CarriedTextures;
   isotropic?: Isotropic;
   sound?: Sound;
-  textures?: Sound1;
+  textures?: BlockTextures;
 }

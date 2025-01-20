@@ -1,6 +1,9 @@
 import fs from 'fs-extra';
 import archiver from "archiver";
 import path from "path";
+import { exec } from 'child_process';
+import { promisify } from 'util';
+const execAsync = promisify(exec);
 
 /**
  * 压缩指定目录到一个 ZIP 文件
@@ -32,4 +35,25 @@ export async function zipDirectory(sourceDir: string, outZipFilePath: string): P
         // 完成归档
         archive.finalize();
     });
+}
+
+export async function compressPngImages(directory: string): Promise<void> {
+    const files = await fs.promises.readdir(directory);
+
+    for (const file of files) {
+        const filePath = path.join(directory, file);
+        const stats = await fs.promises.stat(filePath);
+
+        if (stats.isDirectory()) {
+            await compressPngImages(filePath);
+        } else if (path.extname(file) === '.png') {
+            const command = `pngquant --force ${filePath} -o ${filePath}`;
+            try {
+                await execAsync(command);
+                console.log(`Compressed ${filePath}`);
+            } catch (err) {
+                console.error(`Error compressing ${filePath}: ${err}`);
+            }
+        }
+    }
 }

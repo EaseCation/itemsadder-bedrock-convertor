@@ -497,6 +497,9 @@ export interface Component {
   "minecraft:queued_ticking"?: RandomTicking;
   "minecraft:random_ticking"?: RandomTicking1;
   "minecraft:rideable"?: MinecraftRideable;
+  "minecraft:destroy_time"?: number;
+  "netease:render_layer"?: string;
+  "netease:no_crop_face_block"?: {};
 }
 /**
  * [Experimental] Makes your block into a custom crafting table which enables the crafting table UI and the ability to craft recipes.

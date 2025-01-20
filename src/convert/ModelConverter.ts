@@ -25,11 +25,11 @@ const checkConvertExists = (rootPath: string): string | undefined => {
 
 export const ModelConverter: Converter<BedrockPack.Model, ItemsAdderPack.Model> = {
 
-    convertToJava: (model): ItemsAdderPack.Model | undefined => {
+    convertToJava: async (model): Promise<ItemsAdderPack.Model | undefined> => {
         return undefined;
     },
 
-    convertToBedrock: (model): BedrockPack.Model | undefined => {
+    convertToBedrock: async (model): Promise<BedrockPack.Model | undefined> => {
         const convertPath = checkConvertExists(model.rootPath);
         if (!convertPath) {
             console.warn(`Can't find converted model file of ${model.relativePath}. Please use the Blockbench plugin at https://github.com/EaseCation/itemsadder-bedrock-convertor to perform a batch conversion of the models first.`);

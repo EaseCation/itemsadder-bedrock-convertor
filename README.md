@@ -112,8 +112,17 @@ IA contents + output/generated.zip(权威真相源)
 
 ## 依赖：mc-model-geo
 
-几何转换（Java 模型 → 基岩 geometry，含骨骼层级）由独立库 **`mc-model-geo`** 完成（解耦、零运行期依赖、移植自 Blockbench、单测 + Blockbench 官方导出 ground-truth 验证）。
-本仓库通过 `file:../mc-model-geo` 引用，需将其克隆/放置在**同级目录** `../mc-model-geo` 并先 `npm install && npm run build`。
+几何转换（Java 模型 → 基岩 geometry，含骨骼层级）由独立库 **`mc-model-geo`** 完成（解耦、零运行期依赖、移植自 Blockbench、单测 + Blockbench 官方导出 ground-truth 验证），仓库：https://github.com/EaseCation/mc-model-geo
+
+本仓库以 **git submodule** 形式包含它于 `./mc-model-geo`（依赖声明 `file:./mc-model-geo`）。克隆时：
+
+```bash
+git clone --recurse-submodules <repo>
+# 或克隆后：
+git submodule update --init --recursive
+# 先构建子模块，再装本项目：
+(cd mc-model-geo && npm install && npm run build)
+```
 
 ## 用法
 
@@ -131,12 +140,12 @@ node dist/cli-geyser.js \
   [--pack-version x.y.z] [--min-engine-version x.y.z]
 ```
 
-或用本地便捷包装 `./deploy.sh`（顶部变量可改，或用环境变量覆盖）。
+部署专用的本地包装脚本（写死服务器路径）不在本仓库内，由各服务器自行维护（例如放在服务器的 `scripts/` 下）调用上述 CLI。
 
 ## 完整工作流
 
 1. 游戏内 `/iazip`（刷新 `output/generated.zip` 这一真相源）。
-2. `./deploy.sh`（转换 + 部署到 Geyser）。
+2. 运行 CLI（或服务器的同步脚本），转换 + `--deploy-geyser` 部署到 Geyser。
 3. 重启 Geyser/代理，基岩端重连即可看到自定义方块/物品。
 
 ## 测试

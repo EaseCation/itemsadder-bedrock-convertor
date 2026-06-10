@@ -1,0 +1,3 @@
+[submodule "mc-model-geo"]
+	path = mc-model-geo
+	url = https://github.com/EaseCation/mc-model-geo.git

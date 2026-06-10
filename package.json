@@ -12,7 +12,7 @@
     "ia-vscode": "github:ItemsAdder/ia-vscode",
     "image-size": "^1.0.2",
     "json-schema-to-typescript": "^13.1.1",
-    "mc-model-geo": "file:../mc-model-geo",
+    "mc-model-geo": "file:./mc-model-geo",
     "minecraft-bedrock-schemas": "github:Blockception/Minecraft-bedrock-json-schemas",
     "sharp": "^0.33.5",
     "strip-json-comments": "^5.0.1",

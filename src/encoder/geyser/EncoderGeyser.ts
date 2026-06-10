@@ -118,7 +118,7 @@ export const EncoderGeyser = {
         for (const t of pack.textures) {
             const dest = path.join(rpDir, t.bedrockPath + ".png");
             ensureDir(path.dirname(dest));
-            fs.writeFileSync(dest, t.content);
+            fs.writeFileSync(dest, new Uint8Array(t.content));
             if (t.kind === "block") terrain[t.key] = { textures: t.bedrockPath };
             else itemTex[t.key] = { textures: t.bedrockPath };
         }

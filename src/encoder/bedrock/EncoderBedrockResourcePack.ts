@@ -55,7 +55,7 @@ export const EncoderBedrockResourcePack: IPackEncoder<Pack.BedrockFullPack> = {
                     fs.mkdirSync(path.join(targetPath, path.dirname(texture.path)));
                 }
                 fs.createFileSync(path.join(targetPath, texture.path));
-                fs.writeFileSync(path.join(targetPath, texture.path), texture.content);
+                fs.writeFileSync(path.join(targetPath, texture.path), new Uint8Array(texture.content));
             }
         }
 

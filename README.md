@@ -88,3 +88,57 @@ node dist/index.js --help
 5. PNG 压缩失败？
    - 确保你在系统中安装了合适的图像处理工具或者对应的 npm 库依赖（例如 sharp 等）；
    - 如果想跳过压缩，可以移除或注释掉 compressPngImages 部分。
+
+---
+
+# Geyser 路线（IA → Geyser 自定义方块/物品，本仓库新增）
+
+把 **ItemsAdder 的美术/配置作为唯一真相源**，自动生成 **Geyser `custom_mappings` + 基岩资源包**，并部署到 Geyser。与上面的"网易真方块包"路线相互独立，互不影响。
+
+## 工作原理
+
+```
+IA contents + output/generated.zip(权威真相源)
+  → ParserItemsAdderGenerated（容错 unzip 读 blockstates / item overrides）
+  → blockstateResolver（Java 方块状态键按属性名字母序规范化）
+  → GeyserConverter（几何走 mc-model-geo 库 + 从 IA 源读贴图/配置 + 选项富化）
+  → EncoderGeyser（custom_mappings/<ns>.json + 基岩 RP zip）
+  → 部署到 Geyser 的 custom_mappings/ 与 packs/ResourcePacks/
+```
+
+- 方块映射键 = `host[字母序属性串]`，经 Geyser 源码 `MappingsReader_v1` 精确匹配验证。
+- 物品映射 = base material + `custom_model_data`。
+- 选项富化：`hardness→destructible_by_mining`、`light_level→light_emission`、`REAL_TRANSPARENT→render_method:blend + light_dampening:0`；多块同 host 自动归并 `state_overrides`。
+
+## 依赖：mc-model-geo
+
+几何转换（Java 模型 → 基岩 geometry，含骨骼层级）由独立库 **`mc-model-geo`** 完成（解耦、零运行期依赖、移植自 Blockbench、单测 + Blockbench 官方导出 ground-truth 验证）。
+本仓库通过 `file:../mc-model-geo` 引用，需将其克隆/放置在**同级目录** `../mc-model-geo` 并先 `npm install && npm run build`。
+
+## 用法
+
+```bash
+npm install            # 需先准备好 ../mc-model-geo
+npm run build
+
+# 主脚本（通用、参数化）
+node dist/cli-geyser.js \
+  --ia-contents <ItemsAdder/contents 目录> \
+  [--namespace <ns[,ns2] | all>]        # 默认 all：自动检测所有内容命名空间
+  [--generated <generated.zip>]         # 默认 <ia-contents>/../output/generated.zip
+  [--out <输出目录>]                    # 默认 ./out
+  [--deploy-geyser <Geyser 数据目录>]   # 给定则部署到其 custom_mappings/ 与 packs/ResourcePacks/
+  [--pack-version x.y.z] [--min-engine-version x.y.z]
+```
+
+或用本地便捷包装 `./deploy.sh`（顶部变量可改，或用环境变量覆盖）。
+
+## 完整工作流
+
+1. 游戏内 `/iazip`（刷新 `output/generated.zip` 这一真相源）。
+2. `./deploy.sh`（转换 + 部署到 Geyser）。
+3. 重启 Geyser/代理，基岩端重连即可看到自定义方块/物品。
+
+## 测试
+
+`npm test`（`tsc && vitest`）。几何库 `mc-model-geo` 另有独立测试。

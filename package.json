@@ -4,12 +4,15 @@
   "description": "Convert addons between Items Adder and Bedrock",
   "type": "module",
   "dependencies": {
+    "@types/adm-zip": "^0.5.8",
     "@types/node": "^20.9.2",
+    "adm-zip": "^0.5.17",
     "archiver": "^6.0.1",
     "fs-extra": "^11.1.1",
     "ia-vscode": "github:ItemsAdder/ia-vscode",
     "image-size": "^1.0.2",
     "json-schema-to-typescript": "^13.1.1",
+    "mc-model-geo": "file:../mc-model-geo",
     "minecraft-bedrock-schemas": "github:Blockception/Minecraft-bedrock-json-schemas",
     "sharp": "^0.33.5",
     "strip-json-comments": "^5.0.1",
@@ -21,10 +24,11 @@
     "@types/fs-extra": "^11.0.4",
     "jest": "^29.7.0",
     "ts-node": "^10.9.1",
-    "typescript": "^5.2.2"
+    "typescript": "^5.2.2",
+    "vitest": "^4.1.8"
   },
   "scripts": {
-    "test": "jest",
+    "test": "tsc && vitest run",
     "start": "ts-node dist/main.js",
     "build": "tsc",
     "prestart": "yarn build",

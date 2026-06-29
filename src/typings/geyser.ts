@@ -64,13 +64,26 @@ export type GeometryConvert = (javaModel: any, opts: GeometryConvertOptions) => 
 export interface GeyserGeometryAsset {
     id: string;          // geometry.<ns>.<name>
     content: unknown;    // .geo.json 内容（来自 mc-model-geo）
+    kind?: "block" | "entity";   // block → models/blocks/；entity（武器手持骨链）→ models/entity/。默认 block
+}
+
+// 武器手持三件套中间模型（buildWeaponAttachable 产出 → EncoderGeyser 写盘）
+export interface GeyserAttachableAsset {
+    name: string;        // gladiator_sword → attachables/<name>.json
+    content: unknown;
+}
+export interface GeyserAnimationAsset {
+    name: string;        // gladiator_sword → animations/<name>.animation.json
+    content: unknown;
 }
 
 export interface GeyserTextureAsset {
     key: string;         // terrain/item_texture 中的 data 键，如 ecsb_swamp_plant
     bedrockPath: string; // 包内相对路径，如 textures/blocks/swamp_plant
     content: Buffer;     // PNG 字节
-    kind: "block" | "item";
+    // block → terrain_texture + textures/blocks/；item → item_texture + textures/items/（2D sprite icon）；
+    // item-geometry → 只落盘 textures/items/，被 attachable textures.default 直接引用，不进 item_texture 索引
+    kind: "block" | "item" | "item-geometry";
 }
 
 export interface GeyserBlockEntry {
@@ -94,6 +107,7 @@ export interface GeyserItemEntry {
     icon: string;                      // ecsb_swamp_plant_item
     customModelData: number;
     allowOffhand?: boolean;
+    displayHandheld?: boolean;         // 3D 武器型物品 → 基岩按手持 attachable 渲染（而非 2D sprite）
 }
 
 export interface GeyserPack {
@@ -102,4 +116,6 @@ export interface GeyserPack {
     items: GeyserItemEntry[];
     geometries: GeyserGeometryAsset[];
     textures: GeyserTextureAsset[];
+    attachables: GeyserAttachableAsset[];   // 武器手持 attachable
+    animations: GeyserAnimationAsset[];     // 武器手持 animation
 }

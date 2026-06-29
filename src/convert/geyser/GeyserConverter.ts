@@ -1,6 +1,8 @@
 // 组装 GeyserPack：GeneratedAssets(真相源) + IA 源 resourcepack/config + 注入的几何 provider
 //   → blocks / items / geometries / textures 中间模型，交 EncoderGeyser 写盘。
 
+import fs from "fs";
+import path from "path";
 import { GeneratedAssets } from "../../parser/itemsadder/ParserItemsAdderGenerated.js";
 import { ParserItemsAdderItemsPack } from "../../parser/itemsadder/ParserItemsAdderItemsPack.js";
 import {
@@ -9,18 +11,27 @@ import {
 } from "../../typings/geyser.js";
 import { toGeyserStateKey, modelBaseName } from "./blockstateResolver.js";
 import { loadJavaModel, loadTexturePng, stripColorCodes } from "./sourceAssets.js";
+import { buildWeaponAttachable, WeaponPoseOverride } from "./weaponAttachable.js";
 
 export interface GeyserConvertOptions {
     namespace: string;
     contentsDir: string;            // .../plugins/ItemsAdder/contents
     geometryConvert: GeometryConvert;
+    weaponPoses?: Record<string, WeaponPoseOverride>;  // 按武器 name 的姿态微调覆盖（可选）
 }
 
 const FULL_BLOCK_GEO = "minecraft:geometry.full_block";
 
+/** 读人工武器 2D icon（Blockbench 截图 + square_icon），约定目录 contents/<ns>/geyser_icons/<name>.png */
+function loadWeaponIcon(contentsDir: string, namespace: string, name: string): Buffer | undefined {
+    const p = path.join(contentsDir, namespace, "geyser_icons", `${name}.png`);
+    try { return fs.readFileSync(p); } catch { return undefined; }
+}
+
 export const GeyserConverter = {
     convert(generated: GeneratedAssets, opts: GeyserConvertOptions): GeyserPack {
         const { namespace, contentsDir, geometryConvert } = opts;
+        const weaponPoses = opts.weaponPoses ?? {};
 
         // IA config：建立按 id / model_path 的索引
         const itemsPacks = ParserItemsAdderItemsPack.parse(contentsDir);
@@ -31,7 +42,7 @@ export const GeyserConverter = {
             if (typeof mp === "string") byModelPath.set(mp, { id, display_name: (iaItems[id] as any).display_name });
         }
 
-        const pack: GeyserPack = { namespace, blocks: [], items: [], geometries: [], textures: [] };
+        const pack: GeyserPack = { namespace, blocks: [], items: [], geometries: [], textures: [], attachables: [], animations: [] };
         const geoSeen = new Set<string>();
         const texSeen = new Set<string>();
         const blockNames = new Set<string>();
@@ -144,19 +155,78 @@ export const GeyserConverter = {
             const iaMatch = byModelPath.get(modelPath);
             const itemId = iaMatch?.id ?? modelBaseName(ov.model);
 
-            // 取物品图标贴图：读物品模型的 layer0
             const itemModel = loadJavaModel(contentsDir, ov.model);
-            const layer0 = itemModel?.textures?.layer0;
-            if (!layer0) { console.warn(`[geyser] 物品模型无 layer0: ${ov.model}`); continue; }
-            const iconKey = addTexture(layer0, "item");
+            if (!itemModel) { console.warn(`[geyser] 找不到物品模型: ${ov.model}`); continue; }
 
+            const baseName = modelBaseName(ov.model);
             // 命名：与方块同名则加 _item 后缀，避免基岩标识符冲突
             const name = blockNames.has(itemId) ? `${itemId}_item` : itemId;
+            const displayName = iaMatch?.display_name ? stripColorCodes(iaMatch.display_name) : undefined;
+            const layer0 = itemModel?.textures?.layer0;
 
+            // 武器型识别：无 layer0 但含 elements（3D 手持模型）→ 烘焙 attachable 三件套
+            const isWeapon = !layer0 && Array.isArray(itemModel.elements) && itemModel.elements.length > 0;
+            if (isWeapon) {
+                const identifier = `geometry.${namespace}.${baseName}`;
+                const conv = geometryConvert(itemModel, { identifier, textureSize: itemModel.texture_size });
+                if (!conv || !conv.geometry || conv.isItemSprite) {
+                    console.warn(`[geyser] 武器几何转换失败: ${ov.model}`); continue;
+                }
+                // 几何贴图：首个非 particle 纹理（被 attachable textures.default 直接引用，不进 item_texture）
+                let geoTexRef: string | undefined;
+                for (const k in (itemModel.textures ?? {})) {
+                    if (k === "particle") continue;
+                    geoTexRef = (itemModel.textures as any)[k]; break;
+                }
+                if (!geoTexRef) { console.warn(`[geyser] 武器无几何贴图: ${ov.model}`); continue; }
+                const geoBase = modelBaseName(geoTexRef);
+                const geoTexPath = `textures/items/${geoBase}`;
+                const geoSeenKey = `geo:${geoTexPath}`;
+                if (!texSeen.has(geoSeenKey)) {
+                    const png = loadTexturePng(contentsDir, geoTexRef);
+                    if (png) {
+                        pack.textures.push({ key: `${namespace}_${geoBase}__geo`, bedrockPath: geoTexPath, content: png, kind: "item-geometry" });
+                        texSeen.add(geoSeenKey);
+                    } else console.warn(`[geyser] 武器几何贴图找不到: ${geoTexRef}`);
+                }
+
+                const built = buildWeaponAttachable({
+                    name, identifier, ns: "heypixel",
+                    texture: geoTexPath, rawGeometry: conv.geometry, javaModel: itemModel,
+                    pose: weaponPoses[name],
+                });
+                pack.geometries.push({ id: identifier, content: built.geometry, kind: "entity" });
+                pack.attachables.push({ name, content: built.attachable });
+                pack.animations.push({ name, content: built.animation });
+
+                // 2D inventory icon（人工 Blockbench 截图，约定目录 contents/<ns>/geyser_icons/<name>.png）
+                const iconKey = `${namespace}_${baseName}`;
+                const iconSeenKey = `icon:${iconKey}`;
+                if (!texSeen.has(iconSeenKey)) {
+                    const iconPng = loadWeaponIcon(contentsDir, namespace, name);
+                    if (iconPng) {
+                        pack.textures.push({ key: iconKey, bedrockPath: `textures/items/${name}_icon`, content: iconPng, kind: "item" });
+                        texSeen.add(iconSeenKey);
+                    } else {
+                        console.warn(`[geyser] 武器缺人工 icon（contents/${namespace}/geyser_icons/${name}.png）: ${name}`);
+                    }
+                }
+
+                pack.items.push({
+                    baseMaterial: ov.baseMaterial, name, displayName,
+                    icon: iconKey, customModelData: ov.customModelData,
+                    allowOffhand: true, displayHandheld: true,
+                });
+                continue;
+            }
+
+            // ===== 普通 sprite 物品 =====
+            if (!layer0) { console.warn(`[geyser] 物品模型无 layer0 且非武器: ${ov.model}`); continue; }
+            const iconKey = addTexture(layer0, "item");
             const entry: GeyserItemEntry = {
                 baseMaterial: ov.baseMaterial,
                 name,
-                displayName: iaMatch?.display_name ? stripColorCodes(iaMatch.display_name) : undefined,
+                displayName,
                 icon: iconKey,
                 customModelData: ov.customModelData,
                 allowOffhand: true,

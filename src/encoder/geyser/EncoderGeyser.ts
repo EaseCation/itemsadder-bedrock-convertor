@@ -48,6 +48,7 @@ export const EncoderGeyser = {
                 };
                 if (it.displayName) entry.display_name = it.displayName;
                 if (it.allowOffhand) entry.allow_offhand = true;
+                if (it.displayHandheld) entry.display_handheld = true;
                 arr.push(entry);
             }
         }
@@ -106,10 +107,19 @@ export const EncoderGeyser = {
             modules: [{ type: "resources", uuid: uuidv4(), version: packVersion }],
         });
 
-        // geometries
+        // geometries（block → models/blocks/；武器 entity 手持骨链 → models/entity/）
         for (const g of pack.geometries) {
             const base = g.id.split(".").pop() || g.id;
-            writeJson(path.join(rpDir, "models", "blocks", `${base}.geo.json`), g.content);
+            const sub = g.kind === "entity" ? "entity" : "blocks";
+            writeJson(path.join(rpDir, "models", sub, `${base}.geo.json`), g.content);
+        }
+
+        // 武器手持三件套的后两件：attachables/ + animations/
+        for (const a of pack.attachables) {
+            writeJson(path.join(rpDir, "attachables", `${a.name}.json`), a.content);
+        }
+        for (const an of pack.animations) {
+            writeJson(path.join(rpDir, "animations", `${an.name}.animation.json`), an.content);
         }
 
         // textures + terrain/item texture 索引
@@ -120,7 +130,8 @@ export const EncoderGeyser = {
             ensureDir(path.dirname(dest));
             fs.writeFileSync(dest, new Uint8Array(t.content));
             if (t.kind === "block") terrain[t.key] = { textures: t.bedrockPath };
-            else itemTex[t.key] = { textures: t.bedrockPath };
+            else if (t.kind === "item") itemTex[t.key] = { textures: t.bedrockPath };
+            // item-geometry：只落盘，被 attachable textures.default 直接引用，不进 item_texture 索引
         }
         if (Object.keys(terrain).length) {
             writeJson(path.join(rpDir, "textures", "terrain_texture.json"), {

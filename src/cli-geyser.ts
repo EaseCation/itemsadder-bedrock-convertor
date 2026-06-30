@@ -14,11 +14,15 @@
 import fs from "fs";
 import path from "path";
 import { convertModel } from "mc-model-geo";
-import { ParserItemsAdderGenerated } from "./parser/itemsadder/ParserItemsAdderGenerated.js";
+import { ParserItemsAdderGenerated, extractBedrockPack } from "./parser/itemsadder/ParserItemsAdderGenerated.js";
 import { GeyserConverter } from "./convert/geyser/GeyserConverter.js";
 import { EncoderGeyser } from "./encoder/geyser/EncoderGeyser.js";
-import { loadJavaModel, hasBedrockPack } from "./convert/geyser/sourceAssets.js";
-import { GeometryConvert } from "./typings/geyser.js";
+import { loadJavaModel } from "./convert/geyser/sourceAssets.js";
+import { GeometryConvert, GeyserPack } from "./typings/geyser.js";
+
+// 合并基岩原生包名：generated.zip 里各命名空间的 bedrock_pack 已被 IA 合并成一棵树，
+// 故产单一包（粒子等基岩原生文件）。无 mapping，不入 custom_mappings/。
+const BEDROCK_PACK_NAME = "ecsb_bedrock";
 
 function parseArgs(argv: string[]): Record<string, string> {
     const out: Record<string, string> = {};
@@ -101,14 +105,12 @@ async function main() {
     let totalBlocks = 0, totalItems = 0, produced = 0;
     for (const namespace of namespaces) {
         const generated = ParserItemsAdderGenerated.parse(generatedZip, namespace);
-        // bedrock_pack/（粒子等原样搬运）即便无方块/物品也要产包
-        const bedrockPack = hasBedrockPack(contentsDir, namespace);
-        if (generated.blockStates.length === 0 && generated.itemOverrides.length === 0 && !bedrockPack) {
-            console.log(`[geyser] ${namespace}: 无自定义方块/物品/bedrock_pack，跳过`);
+        if (generated.blockStates.length === 0 && generated.itemOverrides.length === 0) {
+            console.log(`[geyser] ${namespace}: 无自定义方块/物品，跳过`);
             continue;
         }
         const pack = GeyserConverter.convert(generated, { namespace, contentsDir, geometryConvert });
-        if (pack.blocks.length === 0 && pack.items.length === 0 && pack.passthrough.length === 0) {
+        if (pack.blocks.length === 0 && pack.items.length === 0) {
             console.log(`[geyser] ${namespace}: 转换后无产物，跳过`);
             continue;
         }
@@ -118,11 +120,31 @@ async function main() {
         totalBlocks += pack.blocks.length;
         totalItems += pack.items.length;
         produced++;
-        console.log(`[geyser] ${namespace}: blocks=${pack.blocks.length} items=${pack.items.length} geo=${pack.geometries.length} tex=${pack.textures.length} passthrough=${pack.passthrough.length}`);
-        if (deployDir) deployToGeyser(deployDir, namespace, res.mappingFile, res.rpZip, pack.blocks.length > 0 || pack.items.length > 0);
+        console.log(`[geyser] ${namespace}: blocks=${pack.blocks.length} items=${pack.items.length} geo=${pack.geometries.length} tex=${pack.textures.length}`);
+        if (deployDir) deployToGeyser(deployDir, namespace, res.mappingFile, res.rpZip, true);
     }
 
-    console.log(`[geyser] 完成：${produced} 个命名空间，共 blocks=${totalBlocks} items=${totalItems}，输出于 ${outDir}`);
+    // ===== 合并基岩原生包（粒子等）：从 generated.zip 提取合并的 bedrock_pack 全树，原样打成单包 =====
+    // 与 IA 实际发给 Java/VBU 端的内容同源；改粒子须先 /iazip 刷新 generated.zip 再跑本 CLI。
+    const bedrockFiles = extractBedrockPack(generatedZip);
+    if (bedrockFiles.length > 0) {
+        const bpPack: GeyserPack = {
+            namespace: BEDROCK_PACK_NAME,
+            blocks: [], items: [], geometries: [], textures: [], attachables: [], animations: [],
+            passthrough: bedrockFiles,
+        };
+        const res = await EncoderGeyser.encode(bpPack, {
+            outDir, packName: `${BEDROCK_PACK_NAME} (IA bedrock_pack)`, packVersion, minEngineVersion: minEngine,
+        });
+        produced++;
+        const kinds = new Set(bedrockFiles.map(f => f.relPath.split("/")[0]));
+        console.log(`[geyser] ${BEDROCK_PACK_NAME}: bedrock_pack 原生文件 ${bedrockFiles.length}（${[...kinds].join("/")}）`);
+        if (deployDir) deployToGeyser(deployDir, BEDROCK_PACK_NAME, res.mappingFile, res.rpZip, false);
+    } else {
+        console.log(`[geyser] generated.zip 无 bedrock_pack 原生文件，跳过基岩原生包（如需粒子请先 /iazip）`);
+    }
+
+    console.log(`[geyser] 完成：${produced} 个包，共 blocks=${totalBlocks} items=${totalItems}，输出于 ${outDir}`);
     if (deployDir) console.log(`[geyser] 已部署到 ${deployDir} —— 重启 Geyser/代理后基岩端重连生效。`);
 }
 

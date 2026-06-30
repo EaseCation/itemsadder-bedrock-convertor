@@ -10,7 +10,7 @@ import {
     GeyserGeometryAsset, GeyserTextureAsset, GeyserMaterialInstance, GeometryConvert,
 } from "../../typings/geyser.js";
 import { toGeyserStateKey, modelBaseName } from "./blockstateResolver.js";
-import { loadJavaModel, loadTexturePng, stripColorCodes, collectBedrockPassthrough } from "./sourceAssets.js";
+import { loadJavaModel, loadTexturePng, stripColorCodes } from "./sourceAssets.js";
 import { buildWeaponAttachable, WeaponPoseOverride } from "./weaponAttachable.js";
 
 export interface GeyserConvertOptions {
@@ -234,9 +234,7 @@ export const GeyserConverter = {
             pack.items.push(entry);
         }
 
-        // ===== bedrock_pack 原样搬运（粒子等基岩原生文件）=====
-        pack.passthrough = collectBedrockPassthrough(contentsDir, namespace);
-
+        // bedrock_pack 原样搬运不在此处：改由 cli-geyser 从 generated.zip 合并提取，产单一基岩原生包。
         return pack;
     },
 };

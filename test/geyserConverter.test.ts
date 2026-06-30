@@ -4,6 +4,8 @@ import os from "os";
 import path from "path";
 import { GeyserConverter } from "../dist/convert/geyser/GeyserConverter.js";
 import { EncoderGeyser } from "../dist/encoder/geyser/EncoderGeyser.js";
+import { extractBedrockPack } from "../dist/parser/itemsadder/ParserItemsAdderGenerated.js";
+import { zipDirectory } from "../dist/utils/archive.js";
 
 // 1x1 透明 PNG
 const PNG = Buffer.from(
@@ -150,52 +152,59 @@ describe("GeyserConverter M2 覆盖", () => {
 });
 
 // bedrock_pack 原样搬运（粒子等基岩原生文件）：纯 passthrough 命名空间无方块/物品也产包
-describe("bedrock_pack passthrough", () => {
-    let pRoot: string, pContents: string, pOut: string;
+describe("bedrock_pack passthrough（从 generated.zip 合并提取）", () => {
+    let pRoot: string, pOut: string, genZip: string;
 
-    beforeAll(() => {
+    beforeAll(async () => {
         pRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ia-conv-pt-"));
-        pContents = path.join(pRoot, "contents");
         pOut = path.join(pRoot, "out");
-        const ns = "ptest";
-        w(path.join(pContents, ns, "configs", `${ns}.yml`), "info:\n  namespace: ptest\n");
-        const bp = path.join(pContents, ns, "resourcepack", "assets", "minecraft", "bedrock_pack");
+        // 造一个模拟 generated.zip：IA 把各命名空间 bedrock_pack 合并到 assets/minecraft/bedrock_pack/
+        const src = path.join(pRoot, "gensrc");
+        const bp = path.join(src, "assets", "minecraft", "bedrock_pack");
         for (const n of ["alpha", "beta"]) {
             w(path.join(bp, "particles", `${n}.particle.json`),
                 JSON.stringify({ format_version: "1.10.0", particle_effect: { description: { identifier: `ecsb:${n}` } } }));
         }
+        w(path.join(bp, "particles", "sub", "deep.particle.json"), JSON.stringify({ format_version: "1.10.0" })); // 子目录递归
         w(path.join(bp, "textures", "particle", "alpha.png"), PNG);
         w(path.join(bp, "animation_controllers", "swing.json"), JSON.stringify({ format_version: "1.10.0" }));
-        // 根 manifest.json 必须被排除（convertor 自产）
-        w(path.join(bp, "manifest.json"), JSON.stringify({ bogus: true }));
+        w(path.join(bp, "manifest.json"), JSON.stringify({ bogus: true }));     // 根 manifest 必须被排除
+        // 非 bedrock_pack 内容（方块状态等）不应被收
+        w(path.join(src, "assets", "minecraft", "blockstates", "note_block.json"), "{}");
+        w(path.join(src, "pack.mcmeta"), "{}");
+        genZip = path.join(pRoot, "generated.zip");
+        await zipDirectory(src, genZip);
     });
 
     afterAll(() => {
         try { fs.rmSync(pRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     });
 
-    const EMPTY = { blockStates: [], itemOverrides: [] };
-
-    it("collect：整树收集，排除根 manifest.json", () => {
-        const pack = GeyserConverter.convert(EMPTY as any, { namespace: "ptest", contentsDir: pContents, geometryConvert: geometryConvert as any });
-        expect(pack.blocks.length).toBe(0);
-        expect(pack.items.length).toBe(0);
-        const rels = pack.passthrough.map(p => p.relPath).sort();
+    it("extractBedrockPack：整树递归提取，排除根 manifest 与非 bedrock_pack", () => {
+        const files = extractBedrockPack(genZip);
+        const rels = files.map((f: any) => f.relPath).sort();
         expect(rels).toEqual([
             "animation_controllers/swing.json",
             "particles/alpha.particle.json",
             "particles/beta.particle.json",
+            "particles/sub/deep.particle.json",
             "textures/particle/alpha.png",
         ]);
         expect(rels).not.toContain("manifest.json");
+        expect(rels.some((r: string) => r.includes("blockstates"))).toBe(false);
     });
 
-    it("encode：passthrough 落进 RP，manifest 仍为 convertor 自产", async () => {
-        const pack = GeyserConverter.convert(EMPTY as any, { namespace: "ptest", contentsDir: pContents, geometryConvert: geometryConvert as any });
+    it("encode 纯 passthrough 包：文件落 RP，manifest 自产，无 mapping", async () => {
+        const files = extractBedrockPack(genZip);
+        const pack: any = {
+            namespace: "ecsb_bedrock",
+            blocks: [], items: [], geometries: [], textures: [], attachables: [], animations: [],
+            passthrough: files,
+        };
         const res = await EncoderGeyser.encode(pack, { outDir: pOut, packVersion: [1, 2, 3] });
-        const rpDir = path.join(pOut, "ptest_geyser_rp");
+        const rpDir = path.join(pOut, "ecsb_bedrock_geyser_rp");
         expect(fs.existsSync(path.join(rpDir, "particles", "alpha.particle.json"))).toBe(true);
-        expect(fs.existsSync(path.join(rpDir, "particles", "beta.particle.json"))).toBe(true);
+        expect(fs.existsSync(path.join(rpDir, "particles", "sub", "deep.particle.json"))).toBe(true);
         expect(fs.existsSync(path.join(rpDir, "textures", "particle", "alpha.png"))).toBe(true);
         expect(fs.existsSync(path.join(rpDir, "animation_controllers", "swing.json"))).toBe(true);
         // 根 manifest 是 convertor 自产（format_version 2），非 passthrough 的 bogus

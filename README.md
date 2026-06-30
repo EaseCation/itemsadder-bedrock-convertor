@@ -150,19 +150,26 @@ node dist/cli-geyser.js \
 
 ## bedrock_pack 原样搬运（passthrough）与粒子
 
-除「IA 配置 → 自动转换的方块/物品/武器」外，convertor 还会把每个命名空间 IA 源里的
-**基岩原生文件原样搬运**进基岩 RP（与 ItemsAdder 自身对 `bedrock_pack` 的语义一致）：
+除「IA 配置 → 自动转换的方块/物品/武器」外，convertor 还把 IA 的 **基岩原生文件原样搬运**
+进基岩 RP（与 ItemsAdder 自身对 `bedrock_pack` 的语义一致）。
 
-- 源目录：`contents/<ns>/resourcepack/assets/<assetNs>/bedrock_pack/`（通常 `assetNs=minecraft`）。
-- 整棵树原样落进基岩 RP 根（保留相对路径）：`particles/*.particle.json` → `particles/`、
-  `textures/particle/*.png` → `textures/particle/`，以及未来的 `animation_controllers/`、
-  `render_controllers/`、`fog/` 等同样原样搬运。
+**源是 `generated.zip` 的合并 `bedrock_pack`**（不是逐命名空间扫 `contents/`）：
+
+- IA 打包时把各命名空间的 `contents/<ns>/resourcepack/assets/<assetNs>/bedrock_pack/`
+  **合并成一棵树**写进 `generated.zip` 的 `assets/<assetNs>/bedrock_pack/`（通常 `assetNs=minecraft`，
+  各命名空间无独立分区）。`ParserItemsAdderGenerated.extractBedrockPack(generatedZip)` 用系统
+  `unzip` 容错解出该全树（避开 IA「反解压保护」对严格 zip 库的破坏；已逐字节核验 bedrock_pack
+  内容不被该保护篡改）。
+- CLI 把这棵合并树打成**单一基岩原生包** `ecsb_bedrock_geyser.zip`（保留相对路径）：
+  `particles/*.particle.json` → `particles/`、`textures/particle/*.png` → `textures/particle/`，
+  以及未来的 `animation_controllers/`、`render_controllers/`、`fog/` 等同样原样搬运。
 - **排除** `bedrock_pack/` 根的 `manifest.json`（convertor 自产 manifest）。
-- passthrough 写在自动产物**之后**（手写原生文件优先；撞名会 `console.warn`）。
-- **纯 passthrough 命名空间**（无方块/物品，如只放粒子的 `ecsb_particles`）：照常产 `<ns>_geyser.zip`
-  与 manifest，但**不产 / 不部署 `custom_mappings/<ns>.json`**（无物品/方块可映射）。
-- passthrough 直接读 `contents/`，**不经 `generated.zip`** → 改粒子等原生文件**无需 `/iazip`**，
-  跑同步脚本即可。
+- 该包**无 mapping**：照常产 manifest，但**不产 / 不部署 `custom_mappings/`**（无物品/方块可映射）。
+- passthrough 写在自动产物**之后**（撞名会 `console.warn`；粒子落 `particles/`、`textures/particle/`，不相撞）。
+
+> **为何读 `generated.zip` 而非 `contents/`**：① 与 IA 实际发给 Java/VBU 端的内容**同源同态**；
+> ② 多人并行开发时 `contents/` 可能处于半成品态，`generated.zip` 是一次 `/iazip` 的一致快照。
+> 代价：**改粒子等原生文件后须先 `/iazip` 刷新 `generated.zip` 再跑同步**（与改方块/物品/武器一致）。
 
 ### 粒子约定
 
@@ -176,4 +183,4 @@ node dist/cli-geyser.js \
 ## 测试
 
 `npm test`（`tsc && vitest`）。几何库 `mc-model-geo` 另有独立测试。
-passthrough 覆盖见 `test/geyserConverter.test.ts` 的 `bedrock_pack passthrough` 用例。
+passthrough 覆盖见 `test/geyserConverter.test.ts` 的 `bedrock_pack passthrough（从 generated.zip 合并提取）` 用例。

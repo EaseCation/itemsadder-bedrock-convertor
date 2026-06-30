@@ -34,6 +34,12 @@ export interface GeneratedAssets {
     itemOverrides: GeneratedItemOverride[];
 }
 
+// bedrock_pack 原样搬运文件（粒子等基岩原生文件，从 generated.zip 提取）
+export interface BedrockPassthroughFile {
+    relPath: string;   // 相对 bedrock_pack 根，如 particles/x.particle.json（'/' 分隔）
+    content: Buffer;   // 原始字节（JSON / PNG / …）
+}
+
 function extractVariantModels(value: unknown): string[] {
     const out: string[] = [];
     if (Array.isArray(value)) {
@@ -125,3 +131,46 @@ export const ParserItemsAdderGenerated = {
         return { blockStates, itemOverrides };
     },
 };
+
+/** 递归把目录下文件收集为 {relPath, content}（relPath 相对 baseDir，'/' 分隔），排除根 manifest.json */
+function collectTree(dir: string, rel: string, out: BedrockPassthroughFile[]): void {
+    let ents: fs.Dirent[];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const ent of ents) {
+        const abs = path.join(dir, ent.name);
+        const r = rel ? `${rel}/${ent.name}` : ent.name;
+        if (ent.isDirectory()) collectTree(abs, r, out);
+        else if (ent.isFile()) {
+            if (r === "manifest.json") continue;   // convertor 自产 manifest
+            out.push({ relPath: r, content: fs.readFileSync(abs) });
+        }
+    }
+}
+
+/**
+ * 从 generated.zip 提取合并后的 bedrock_pack 全树（IA 在打包时把各命名空间的
+ * `assets/<ns>/bedrock_pack/` 合并到 `assets/<assetNs>/bedrock_pack/`，通常 minecraft）。
+ *
+ * 返回每个文件 { relPath, content }，relPath 相对各自 bedrock_pack 根
+ * （如 `particles/x.particle.json`、`textures/particle/x.png`），排除根 manifest.json。
+ *
+ * 同 parse() 走系统 unzip 容错解压——绕开 IA「反解压保护」对严格 zip 库的破坏。
+ * 已逐字节核验 bedrock_pack 内容不被该保护篡改（JSON/PNG md5 与 contents 源一致）。
+ */
+export function extractBedrockPack(zipPath: string): BedrockPassthroughFile[] {
+    const out: BedrockPassthroughFile[] = [];
+    // unzip 的 `*` 匹配含 `/`，故该 glob 递归命中任意 assets/<ns>/bedrock_pack/ 下全部文件
+    const tmp = extractEntries(zipPath, ["assets/*/bedrock_pack/*"]);
+    try {
+        const assetsRoot = path.join(tmp, "assets");
+        if (!fs.existsSync(assetsRoot)) return out;
+        for (const assetNs of fs.readdirSync(assetsRoot)) {
+            const bpRoot = path.join(assetsRoot, assetNs, "bedrock_pack");
+            try { if (!fs.statSync(bpRoot).isDirectory()) continue; } catch { continue; }
+            collectTree(bpRoot, "", out);
+        }
+    } finally {
+        try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+    return out;
+}

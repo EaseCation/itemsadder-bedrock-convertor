@@ -148,6 +148,32 @@ node dist/cli-geyser.js \
 2. 运行 CLI（或服务器的同步脚本），转换 + `--deploy-geyser` 部署到 Geyser。
 3. 重启 Geyser/代理，基岩端重连即可看到自定义方块/物品。
 
+## bedrock_pack 原样搬运（passthrough）与粒子
+
+除「IA 配置 → 自动转换的方块/物品/武器」外，convertor 还会把每个命名空间 IA 源里的
+**基岩原生文件原样搬运**进基岩 RP（与 ItemsAdder 自身对 `bedrock_pack` 的语义一致）：
+
+- 源目录：`contents/<ns>/resourcepack/assets/<assetNs>/bedrock_pack/`（通常 `assetNs=minecraft`）。
+- 整棵树原样落进基岩 RP 根（保留相对路径）：`particles/*.particle.json` → `particles/`、
+  `textures/particle/*.png` → `textures/particle/`，以及未来的 `animation_controllers/`、
+  `render_controllers/`、`fog/` 等同样原样搬运。
+- **排除** `bedrock_pack/` 根的 `manifest.json`（convertor 自产 manifest）。
+- passthrough 写在自动产物**之后**（手写原生文件优先；撞名会 `console.warn`）。
+- **纯 passthrough 命名空间**（无方块/物品，如只放粒子的 `ecsb_particles`）：照常产 `<ns>_geyser.zip`
+  与 manifest，但**不产 / 不部署 `custom_mappings/<ns>.json`**（无物品/方块可映射）。
+- passthrough 直接读 `contents/`，**不经 `generated.zip`** → 改粒子等原生文件**无需 `/iazip`**，
+  跑同步脚本即可。
+
+### 粒子约定
+
+- 标识符 `ecsb:<name>`，贴图引用 `textures/particle/<tex>`（无扩展名），贴图文件落 `textures/particle/<tex>.png`。
+- **粒子内容由各服自己的生成器拥有**（例如 `contents/ecsb_particles/gen_particle_json.py` +
+  `gen_particle_textures.py` 确定性产出整套 `.particle.json` 与蒙版贴图到 `bedrock_pack/`）。
+  convertor **只负责打包搬运，不生成粒子**；要改粒子改生成器，不要手写进输出目录（会被生成器复跑/清理覆盖）。
+- 运行时触发与命名空间归属是另一回事：基岩粒子经服务端 `geyserutils:main` 通道下发；
+  `easecation:*` 等其它命名空间可能属别的服务（如主网 CodeFunCore），与本服 `ecsb:*` 互不混用。
+
 ## 测试
 
 `npm test`（`tsc && vitest`）。几何库 `mc-model-geo` 另有独立测试。
+passthrough 覆盖见 `test/geyserConverter.test.ts` 的 `bedrock_pack passthrough` 用例。

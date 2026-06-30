@@ -17,7 +17,7 @@ import { convertModel } from "mc-model-geo";
 import { ParserItemsAdderGenerated } from "./parser/itemsadder/ParserItemsAdderGenerated.js";
 import { GeyserConverter } from "./convert/geyser/GeyserConverter.js";
 import { EncoderGeyser } from "./encoder/geyser/EncoderGeyser.js";
-import { loadJavaModel } from "./convert/geyser/sourceAssets.js";
+import { loadJavaModel, hasBedrockPack } from "./convert/geyser/sourceAssets.js";
 import { GeometryConvert } from "./typings/geyser.js";
 
 function parseArgs(argv: string[]): Record<string, string> {
@@ -49,16 +49,21 @@ function detectNamespaces(contentsDir: string): string[] {
         });
 }
 
-/** 部署到 Geyser：mapping → custom_mappings/，RP zip → packs/ResourcePacks/（先清同名旧 zip） */
-function deployToGeyser(geyserDir: string, namespace: string, mappingFile: string, rpZip: string): void {
+/** 部署到 Geyser：mapping → custom_mappings/（仅当有方块/物品），RP zip → packs/ResourcePacks/（先清同名旧 zip） */
+function deployToGeyser(geyserDir: string, namespace: string, mappingFile: string, rpZip: string, hasMappings: boolean): void {
     const cmDir = path.join(geyserDir, "custom_mappings");
     const rpDir = path.join(geyserDir, "packs", "ResourcePacks");
-    fs.mkdirSync(cmDir, { recursive: true });
     fs.mkdirSync(rpDir, { recursive: true });
-    fs.copyFileSync(mappingFile, path.join(cmDir, `${namespace}.json`));
     const zipName = path.basename(rpZip);
     fs.copyFileSync(rpZip, path.join(rpDir, zipName));
-    console.log(`[deploy] ${namespace}: custom_mappings/${namespace}.json + packs/ResourcePacks/${zipName}`);
+    if (hasMappings) {
+        fs.mkdirSync(cmDir, { recursive: true });
+        fs.copyFileSync(mappingFile, path.join(cmDir, `${namespace}.json`));
+        console.log(`[deploy] ${namespace}: custom_mappings/${namespace}.json + packs/ResourcePacks/${zipName}`);
+    } else {
+        // 纯 passthrough 包（如粒子）无 mapping，只发资源包
+        console.log(`[deploy] ${namespace}: packs/ResourcePacks/${zipName}（纯 passthrough，无 mapping）`);
+    }
 }
 
 async function main() {
@@ -96,12 +101,14 @@ async function main() {
     let totalBlocks = 0, totalItems = 0, produced = 0;
     for (const namespace of namespaces) {
         const generated = ParserItemsAdderGenerated.parse(generatedZip, namespace);
-        if (generated.blockStates.length === 0 && generated.itemOverrides.length === 0) {
-            console.log(`[geyser] ${namespace}: 无自定义方块/物品，跳过`);
+        // bedrock_pack/（粒子等原样搬运）即便无方块/物品也要产包
+        const bedrockPack = hasBedrockPack(contentsDir, namespace);
+        if (generated.blockStates.length === 0 && generated.itemOverrides.length === 0 && !bedrockPack) {
+            console.log(`[geyser] ${namespace}: 无自定义方块/物品/bedrock_pack，跳过`);
             continue;
         }
         const pack = GeyserConverter.convert(generated, { namespace, contentsDir, geometryConvert });
-        if (pack.blocks.length === 0 && pack.items.length === 0) {
+        if (pack.blocks.length === 0 && pack.items.length === 0 && pack.passthrough.length === 0) {
             console.log(`[geyser] ${namespace}: 转换后无产物，跳过`);
             continue;
         }
@@ -111,8 +118,8 @@ async function main() {
         totalBlocks += pack.blocks.length;
         totalItems += pack.items.length;
         produced++;
-        console.log(`[geyser] ${namespace}: blocks=${pack.blocks.length} items=${pack.items.length} geo=${pack.geometries.length} tex=${pack.textures.length}`);
-        if (deployDir) deployToGeyser(deployDir, namespace, res.mappingFile, res.rpZip);
+        console.log(`[geyser] ${namespace}: blocks=${pack.blocks.length} items=${pack.items.length} geo=${pack.geometries.length} tex=${pack.textures.length} passthrough=${pack.passthrough.length}`);
+        if (deployDir) deployToGeyser(deployDir, namespace, res.mappingFile, res.rpZip, pack.blocks.length > 0 || pack.items.length > 0);
     }
 
     console.log(`[geyser] 完成：${produced} 个命名空间，共 blocks=${totalBlocks} items=${totalItems}，输出于 ${outDir}`);

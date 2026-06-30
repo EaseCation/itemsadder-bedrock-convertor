@@ -10,7 +10,7 @@ import {
     GeyserGeometryAsset, GeyserTextureAsset, GeyserMaterialInstance, GeometryConvert,
 } from "../../typings/geyser.js";
 import { toGeyserStateKey, modelBaseName } from "./blockstateResolver.js";
-import { loadJavaModel, loadTexturePng, stripColorCodes } from "./sourceAssets.js";
+import { loadJavaModel, loadTexturePng, stripColorCodes, collectBedrockPassthrough } from "./sourceAssets.js";
 import { buildWeaponAttachable, WeaponPoseOverride } from "./weaponAttachable.js";
 
 export interface GeyserConvertOptions {
@@ -42,7 +42,7 @@ export const GeyserConverter = {
             if (typeof mp === "string") byModelPath.set(mp, { id, display_name: (iaItems[id] as any).display_name });
         }
 
-        const pack: GeyserPack = { namespace, blocks: [], items: [], geometries: [], textures: [], attachables: [], animations: [] };
+        const pack: GeyserPack = { namespace, blocks: [], items: [], geometries: [], textures: [], attachables: [], animations: [], passthrough: [] };
         const geoSeen = new Set<string>();
         const texSeen = new Set<string>();
         const blockNames = new Set<string>();
@@ -233,6 +233,9 @@ export const GeyserConverter = {
             };
             pack.items.push(entry);
         }
+
+        // ===== bedrock_pack 原样搬运（粒子等基岩原生文件）=====
+        pack.passthrough = collectBedrockPassthrough(contentsDir, namespace);
 
         return pack;
     },

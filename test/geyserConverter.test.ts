@@ -148,3 +148,64 @@ describe("GeyserConverter M2 覆盖", () => {
         expect(mapping.items["minecraft:paper"].length).toBe(1);
     });
 });
+
+// bedrock_pack 原样搬运（粒子等基岩原生文件）：纯 passthrough 命名空间无方块/物品也产包
+describe("bedrock_pack passthrough", () => {
+    let pRoot: string, pContents: string, pOut: string;
+
+    beforeAll(() => {
+        pRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ia-conv-pt-"));
+        pContents = path.join(pRoot, "contents");
+        pOut = path.join(pRoot, "out");
+        const ns = "ptest";
+        w(path.join(pContents, ns, "configs", `${ns}.yml`), "info:\n  namespace: ptest\n");
+        const bp = path.join(pContents, ns, "resourcepack", "assets", "minecraft", "bedrock_pack");
+        for (const n of ["alpha", "beta"]) {
+            w(path.join(bp, "particles", `${n}.particle.json`),
+                JSON.stringify({ format_version: "1.10.0", particle_effect: { description: { identifier: `ecsb:${n}` } } }));
+        }
+        w(path.join(bp, "textures", "particle", "alpha.png"), PNG);
+        w(path.join(bp, "animation_controllers", "swing.json"), JSON.stringify({ format_version: "1.10.0" }));
+        // 根 manifest.json 必须被排除（convertor 自产）
+        w(path.join(bp, "manifest.json"), JSON.stringify({ bogus: true }));
+    });
+
+    afterAll(() => {
+        try { fs.rmSync(pRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+
+    const EMPTY = { blockStates: [], itemOverrides: [] };
+
+    it("collect：整树收集，排除根 manifest.json", () => {
+        const pack = GeyserConverter.convert(EMPTY as any, { namespace: "ptest", contentsDir: pContents, geometryConvert: geometryConvert as any });
+        expect(pack.blocks.length).toBe(0);
+        expect(pack.items.length).toBe(0);
+        const rels = pack.passthrough.map(p => p.relPath).sort();
+        expect(rels).toEqual([
+            "animation_controllers/swing.json",
+            "particles/alpha.particle.json",
+            "particles/beta.particle.json",
+            "textures/particle/alpha.png",
+        ]);
+        expect(rels).not.toContain("manifest.json");
+    });
+
+    it("encode：passthrough 落进 RP，manifest 仍为 convertor 自产", async () => {
+        const pack = GeyserConverter.convert(EMPTY as any, { namespace: "ptest", contentsDir: pContents, geometryConvert: geometryConvert as any });
+        const res = await EncoderGeyser.encode(pack, { outDir: pOut, packVersion: [1, 2, 3] });
+        const rpDir = path.join(pOut, "ptest_geyser_rp");
+        expect(fs.existsSync(path.join(rpDir, "particles", "alpha.particle.json"))).toBe(true);
+        expect(fs.existsSync(path.join(rpDir, "particles", "beta.particle.json"))).toBe(true);
+        expect(fs.existsSync(path.join(rpDir, "textures", "particle", "alpha.png"))).toBe(true);
+        expect(fs.existsSync(path.join(rpDir, "animation_controllers", "swing.json"))).toBe(true);
+        // 根 manifest 是 convertor 自产（format_version 2），非 passthrough 的 bogus
+        const manifest = JSON.parse(fs.readFileSync(path.join(rpDir, "manifest.json"), "utf-8"));
+        expect(manifest.format_version).toBe(2);
+        expect(manifest.bogus).toBeUndefined();
+        // 纯 passthrough：mapping 无 items/blocks
+        const mapping = JSON.parse(fs.readFileSync(res.mappingFile, "utf-8"));
+        expect(mapping.items).toBeUndefined();
+        expect(mapping.blocks).toBeUndefined();
+        expect(fs.existsSync(res.rpZip)).toBe(true);
+    });
+});

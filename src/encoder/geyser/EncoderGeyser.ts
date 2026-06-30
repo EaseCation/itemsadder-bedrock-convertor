@@ -146,6 +146,15 @@ export const EncoderGeyser = {
             });
         }
 
+        // passthrough：IA bedrock_pack/ 原样搬运（粒子等基岩原生文件），写在自动产物之后
+        //（手写原生文件优先；粒子落 particles/、textures/particle/，不与自动产物相撞）
+        for (const pf of pack.passthrough) {
+            const dest = path.join(rpDir, pf.relPath);
+            if (fs.existsSync(dest)) console.warn(`[geyser] passthrough 覆盖自动产物: ${pf.relPath}`);
+            ensureDir(path.dirname(dest));
+            fs.writeFileSync(dest, new Uint8Array(pf.content));
+        }
+
         // zip
         const rpZip = path.join(outDir, `${namespace}_geyser.zip`);
         await zipDirectory(rpDir, rpZip);

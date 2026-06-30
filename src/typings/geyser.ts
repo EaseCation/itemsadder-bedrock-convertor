@@ -110,6 +110,13 @@ export interface GeyserItemEntry {
     displayHandheld?: boolean;         // 3D 武器型物品 → 基岩按手持 attachable 渲染（而非 2D sprite）
 }
 
+// 原样搬运资产：IA 源 bedrock_pack/ 下的基岩原生文件（粒子定义/贴图，及未来的
+// animation_controllers/render_controllers/fog 等），不经几何/贴图转换，直接落进基岩 RP 根。
+export interface GeyserPassthroughAsset {
+    relPath: string;   // 相对各自 bedrock_pack 根；直接映射到 RP 根，如 particles/ecsb_demo.particle.json
+    content: Buffer;   // 原始字节（JSON / PNG / …）
+}
+
 export interface GeyserPack {
     namespace: string;
     blocks: GeyserBlockEntry[];
@@ -118,4 +125,5 @@ export interface GeyserPack {
     textures: GeyserTextureAsset[];
     attachables: GeyserAttachableAsset[];   // 武器手持 attachable
     animations: GeyserAnimationAsset[];     // 武器手持 animation
+    passthrough: GeyserPassthroughAsset[];  // bedrock_pack/ 原样搬运（粒子等基岩原生文件）
 }

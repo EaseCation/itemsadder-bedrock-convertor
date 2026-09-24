@@ -8,6 +8,9 @@
 //     [--deploy-geyser <Geyser 数据目录>]             给定则部署到 <dir>/custom_mappings 与 <dir>/packs/ResourcePacks
 //     [--pack-version x.y.z]                          默认 1.0.0（升版本可强制基岩客户端重下）
 //     [--min-engine-version x.y.z]                    默认 1.16.0
+//     [--modui-base <ec_ui.zip>]                      合并 generated.zip 的 minecraft/textures/ui
+//     [--modui-backup-dir <dir>]                      部署 ModUI 包前保存旧包
+//     [--modui-only]                                  只构建/部署 ModUI，不转换其他命名空间
 //
 // 几何转换走 mc-model-geo 库；自定义命名空间的 parent 从 IA 源 resourcepack 解析。
 
@@ -17,6 +20,7 @@ import { convertModel } from "mc-model-geo";
 import { ParserItemsAdderGenerated, extractBedrockPack } from "./parser/itemsadder/ParserItemsAdderGenerated.js";
 import { GeyserConverter } from "./convert/geyser/GeyserConverter.js";
 import { EncoderGeyser } from "./encoder/geyser/EncoderGeyser.js";
+import { buildModUiPack, deployModUiPack } from "./encoder/geyser/ModUiPackBuilder.js";
 import { loadJavaModel } from "./convert/geyser/sourceAssets.js";
 import { GeometryConvert, GeyserPack } from "./typings/geyser.js";
 
@@ -41,6 +45,10 @@ function parseVersion(s: string | undefined, def: [number, number, number]): [nu
     if (!s) return def;
     const p = s.split(".").map(n => parseInt(n, 10));
     return [p[0] || def[0], p[1] || def[1], p[2] || def[2]];
+}
+
+function versionString(version: [number, number, number]): string {
+    return version.join(".");
 }
 
 /** 自动检测内容命名空间：contents 下含 configs/ 子目录、且非内部目录 */
@@ -74,7 +82,7 @@ async function main() {
     const args = parseArgs(process.argv.slice(2));
     const contentsDir = args["ia-contents"];
     if (!contentsDir) {
-        console.error("用法: cli-geyser --ia-contents <dir> [--generated <zip>] [--namespace <ns|all>] [--out <dir>] [--deploy-geyser <dir>] [--pack-version x.y.z] [--min-engine-version x.y.z]");
+        console.error("用法: cli-geyser --ia-contents <dir> [--generated <zip>] [--namespace <ns|all>] [--out <dir>] [--deploy-geyser <dir>] [--pack-version x.y.z] [--min-engine-version x.y.z] [--modui-base <ec_ui.zip>] [--modui-backup-dir <dir>] [--modui-only]");
         process.exit(1);
     }
     const generatedZip = args["generated"] ?? path.join(path.dirname(contentsDir), "output", "generated.zip");
@@ -82,15 +90,22 @@ async function main() {
     const deployDir = args["deploy-geyser"];
     const packVersion = parseVersion(args["pack-version"], [1, 0, 0]);
     const minEngine = parseVersion(args["min-engine-version"], [1, 16, 0]);
+    const modUiBase = args["modui-base"];
+    const modUiOnly = args["modui-only"] === "true";
+    const modUiBackupDir = args["modui-backup-dir"];
+    if (modUiOnly && !modUiBase) throw new Error("--modui-only requires --modui-base");
+    if (modUiBase && deployDir && !modUiBackupDir) {
+        throw new Error("deploying ModUI requires --modui-backup-dir");
+    }
 
     const nsArg = args["namespace"];
-    const namespaces = (!nsArg || nsArg === "all" || nsArg === "true")
+    const namespaces = modUiOnly ? [] : (!nsArg || nsArg === "all" || nsArg === "true")
         ? detectNamespaces(contentsDir)
         : nsArg.split(",").map(s => s.trim()).filter(Boolean);
 
     console.log(`[geyser] contents=${contentsDir}`);
     console.log(`[geyser] generated.zip=${generatedZip}`);
-    console.log(`[geyser] 命名空间: ${namespaces.join(", ") || "(无)"}`);
+    console.log(`[geyser] 命名空间: ${modUiOnly ? "(仅 ModUI)" : namespaces.join(", ") || "(无)"}`);
 
     // 几何转换：mc-model-geo；自定义命名空间 parent 从 IA 源解析
     const geometryConvert: GeometryConvert = (javaModel, o) => convertModel(javaModel, {
@@ -103,45 +118,69 @@ async function main() {
     });
 
     let totalBlocks = 0, totalItems = 0, produced = 0;
-    for (const namespace of namespaces) {
-        const generated = ParserItemsAdderGenerated.parse(generatedZip, namespace);
-        if (generated.blockStates.length === 0 && generated.itemOverrides.length === 0) {
-            console.log(`[geyser] ${namespace}: 无自定义方块/物品，跳过`);
-            continue;
+    if (!modUiOnly) {
+        for (const namespace of namespaces) {
+            const generated = ParserItemsAdderGenerated.parse(generatedZip, namespace);
+            if (generated.blockStates.length === 0 && generated.itemOverrides.length === 0) {
+                console.log(`[geyser] ${namespace}: 无自定义方块/物品，跳过`);
+                continue;
+            }
+            const pack = GeyserConverter.convert(generated, { namespace, contentsDir, geometryConvert, generatedZip });
+            if (pack.blocks.length === 0 && pack.items.length === 0) {
+                console.log(`[geyser] ${namespace}: 转换后无产物，跳过`);
+                continue;
+            }
+            const res = await EncoderGeyser.encode(pack, {
+                outDir, packName: `${namespace} (IA→Geyser)`, packVersion, minEngineVersion: minEngine,
+            });
+            totalBlocks += pack.blocks.length;
+            totalItems += pack.items.length;
+            produced++;
+            console.log(`[geyser] ${namespace}: blocks=${pack.blocks.length} items=${pack.items.length} geo=${pack.geometries.length} tex=${pack.textures.length}`);
+            if (deployDir) deployToGeyser(deployDir, namespace, res.mappingFile, res.rpZip, true);
         }
-        const pack = GeyserConverter.convert(generated, { namespace, contentsDir, geometryConvert });
-        if (pack.blocks.length === 0 && pack.items.length === 0) {
-            console.log(`[geyser] ${namespace}: 转换后无产物，跳过`);
-            continue;
+
+        // generated.zip 中合并的 bedrock_pack 原样转换成单一基岩原生包。
+        const bedrockFiles = extractBedrockPack(generatedZip);
+        if (bedrockFiles.length > 0) {
+            const bpPack: GeyserPack = {
+                namespace: BEDROCK_PACK_NAME,
+                blocks: [], items: [], geometries: [], textures: [], attachables: [], animations: [],
+                passthrough: bedrockFiles,
+            };
+            const res = await EncoderGeyser.encode(bpPack, {
+                outDir, packName: `${BEDROCK_PACK_NAME} (IA bedrock_pack)`, packVersion, minEngineVersion: minEngine,
+            });
+            produced++;
+            const kinds = new Set(bedrockFiles.map(f => f.relPath.split("/")[0]));
+            console.log(`[geyser] ${BEDROCK_PACK_NAME}: bedrock_pack 原生文件 ${bedrockFiles.length}（${[...kinds].join("/")}）`);
+            if (deployDir) deployToGeyser(deployDir, BEDROCK_PACK_NAME, res.mappingFile, res.rpZip, false);
+        } else {
+            console.log(`[geyser] generated.zip 无 bedrock_pack 原生文件，跳过基岩原生包（如需粒子请先 /iazip）`);
         }
-        const res = await EncoderGeyser.encode(pack, {
-            outDir, packName: `${namespace} (IA→Geyser)`, packVersion, minEngineVersion: minEngine,
-        });
-        totalBlocks += pack.blocks.length;
-        totalItems += pack.items.length;
-        produced++;
-        console.log(`[geyser] ${namespace}: blocks=${pack.blocks.length} items=${pack.items.length} geo=${pack.geometries.length} tex=${pack.textures.length}`);
-        if (deployDir) deployToGeyser(deployDir, namespace, res.mappingFile, res.rpZip, true);
     }
 
-    // ===== 合并基岩原生包（粒子等）：从 generated.zip 提取合并的 bedrock_pack 全树，原样打成单包 =====
-    // 与 IA 实际发给 Java/VBU 端的内容同源；改粒子须先 /iazip 刷新 generated.zip 再跑本 CLI。
-    const bedrockFiles = extractBedrockPack(generatedZip);
-    if (bedrockFiles.length > 0) {
-        const bpPack: GeyserPack = {
-            namespace: BEDROCK_PACK_NAME,
-            blocks: [], items: [], geometries: [], textures: [], attachables: [], animations: [],
-            passthrough: bedrockFiles,
-        };
-        const res = await EncoderGeyser.encode(bpPack, {
-            outDir, packName: `${BEDROCK_PACK_NAME} (IA bedrock_pack)`, packVersion, minEngineVersion: minEngine,
+    if (modUiBase) {
+        const targetPack = deployDir
+            ? path.join(deployDir, "packs", "ResourcePacks", "ec_ui.zip")
+            : undefined;
+        const modUi = await buildModUiPack({
+            basePack: modUiBase,
+            generatedZip,
+            currentPack: args["modui-current"] ?? targetPack,
+            outDir,
         });
-        produced++;
-        const kinds = new Set(bedrockFiles.map(f => f.relPath.split("/")[0]));
-        console.log(`[geyser] ${BEDROCK_PACK_NAME}: bedrock_pack 原生文件 ${bedrockFiles.length}（${[...kinds].join("/")}）`);
-        if (deployDir) deployToGeyser(deployDir, BEDROCK_PACK_NAME, res.mappingFile, res.rpZip, false);
-    } else {
-        console.log(`[geyser] generated.zip 无 bedrock_pack 原生文件，跳过基岩原生包（如需粒子请先 /iazip）`);
+        if (modUi.changed && modUi.outputPack) {
+            produced++;
+            console.log(`[geyser] ec_ui: files=${modUi.totalFileCount} overlay=${modUi.overlayFileCount} version=${versionString(modUi.version)}`);
+            if (targetPack) {
+                const deployed = deployModUiPack(modUi.outputPack, targetPack, modUiBackupDir!);
+                console.log(`[deploy] ec_ui: packs/ResourcePacks/ec_ui.zip (${deployed.size} bytes, sha256=${deployed.sha256})`);
+                if (deployed.backupPack) console.log(`[deploy] ec_ui backup: ${deployed.backupPack}`);
+            }
+        } else {
+            console.log(`[geyser] ec_ui 已是最新内容：overlay=${modUi.overlayFileCount} version=${versionString(modUi.version)}`);
+        }
     }
 
     console.log(`[geyser] 完成：${produced} 个包，共 blocks=${totalBlocks} items=${totalItems}，输出于 ${outDir}`);

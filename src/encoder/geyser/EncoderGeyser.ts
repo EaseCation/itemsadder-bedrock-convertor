@@ -6,11 +6,17 @@
 
 import fs from "fs";
 import path from "path";
-import { v4 as uuidv4 } from "uuid";
+import { v5 as uuidv5 } from "uuid";
 import { zipDirectory } from "../../utils/archive.js";
 import {
     GeyserPack, GeyserMappingFile, GeyserBlockMapping, GeyserItemMapping, GeyserBlockStateComponents,
 } from "../../typings/geyser.js";
+
+// 包 UUID 必须跨构建稳定：随机 UUID 会让基岩客户端把每次同步都当成新包重下，
+// 并在客户端留下旧包。改名空间一旦发布不可更改（否则等于换包，客户端会重下一次）。
+const PIPELINE_UUID_NAMESPACE = "7c9e6a52-1f3b-4d8e-9a41-0c5b2e8d7f63";
+const packUuid = (namespace: string, part: "header" | "module"): string =>
+    uuidv5(`${namespace}:${part}`, PIPELINE_UUID_NAMESPACE);
 
 function ensureDir(p: string) { fs.mkdirSync(p, { recursive: true }); }
 function writeJson(file: string, obj: unknown) {
@@ -47,7 +53,8 @@ export const EncoderGeyser = {
                     custom_model_data: it.customModelData,
                 };
                 if (it.displayName) entry.display_name = it.displayName;
-                if (it.allowOffhand) entry.allow_offhand = true;
+                // Geyser defaults this capability to true, so false must be serialized explicitly.
+                entry.allow_offhand = it.allowOffhand === true;
                 if (it.displayHandheld) entry.display_handheld = true;
                 arr.push(entry);
             }
@@ -100,11 +107,11 @@ export const EncoderGeyser = {
             header: {
                 name: opts.packName ?? `${namespace} Geyser RP`,
                 description: `Auto-generated from ItemsAdder (${namespace})`,
-                uuid: uuidv4(),
+                uuid: packUuid(namespace, "header"),
                 version: packVersion,
                 min_engine_version: minEngine,
             },
-            modules: [{ type: "resources", uuid: uuidv4(), version: packVersion }],
+            modules: [{ type: "resources", uuid: packUuid(namespace, "module"), version: packVersion }],
         });
 
         // geometries（block → models/blocks/；武器 entity 手持骨链 → models/entity/）

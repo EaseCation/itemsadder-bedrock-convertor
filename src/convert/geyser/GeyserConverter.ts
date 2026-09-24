@@ -10,12 +10,15 @@ import {
     GeyserGeometryAsset, GeyserTextureAsset, GeyserMaterialInstance, GeometryConvert,
 } from "../../typings/geyser.js";
 import { toGeyserStateKey, modelBaseName } from "./blockstateResolver.js";
-import { loadJavaModel, loadTexturePng, stripColorCodes } from "./sourceAssets.js";
+import {
+    loadJavaModel, loadTexturePng, stripColorCodes, GeneratedZipAssets, resolveIndirectTextureRef,
+} from "./sourceAssets.js";
 import { buildWeaponAttachable, WeaponPoseOverride } from "./weaponAttachable.js";
 
 export interface GeyserConvertOptions {
     namespace: string;
     contentsDir: string;            // .../plugins/ItemsAdder/contents
+    generatedZip?: string;          // IA 的 output/generated.zip（ia_auto 模型/贴图的次级真相源）
     geometryConvert: GeometryConvert;
     weaponPoses?: Record<string, WeaponPoseOverride>;  // 按武器 name 的姿态微调覆盖（可选）
 }
@@ -32,14 +35,17 @@ export const GeyserConverter = {
     convert(generated: GeneratedAssets, opts: GeyserConvertOptions): GeyserPack {
         const { namespace, contentsDir, geometryConvert } = opts;
         const weaponPoses = opts.weaponPoses ?? {};
+        const zipAssets = opts.generatedZip ? new GeneratedZipAssets(opts.generatedZip) : undefined;
 
         // IA config：建立按 id / model_path 的索引
         const itemsPacks = ParserItemsAdderItemsPack.parse(contentsDir);
         const iaItems = itemsPacks[namespace]?.items ?? {};
-        const byModelPath = new Map<string, { id: string; display_name?: string }>();
+        const byModelPath = new Map<string, { id: string; display_name?: string; item: any }>();
         for (const id in iaItems) {
             const mp = (iaItems[id] as any)?.resource?.model_path;
-            if (typeof mp === "string") byModelPath.set(mp, { id, display_name: (iaItems[id] as any).display_name });
+            if (typeof mp === "string") {
+                byModelPath.set(mp, { id, display_name: (iaItems[id] as any).display_name, item: iaItems[id] });
+            }
         }
 
         const pack: GeyserPack = { namespace, blocks: [], items: [], geometries: [], textures: [], attachables: [], animations: [], passthrough: [] };
@@ -50,8 +56,11 @@ export const GeyserConverter = {
         const addTexture = (texRef: string, kind: "block" | "item"): string => {
             const base = modelBaseName(texRef);
             const key = `${namespace}_${base}`;
-            if (!texSeen.has(key)) {
-                const png = loadTexturePng(contentsDir, texRef);
+            // 同一张贴图可能同时被方块面和物品图标引用；terrain/item 是两个独立索引文件，
+            // 必须各自登记，否则物品图标会指向只存在于 terrain_texture.json 的键。
+            const seenKey = `${kind}:${key}`;
+            if (!texSeen.has(seenKey)) {
+                const png = loadTexturePng(contentsDir, texRef, zipAssets);
                 if (png) {
                     pack.textures.push({
                         key,
@@ -59,7 +68,7 @@ export const GeyserConverter = {
                         content: png,
                         kind,
                     });
-                    texSeen.add(key);
+                    texSeen.add(seenKey);
                 } else {
                     console.warn(`[geyser] 找不到贴图: ${texRef}`);
                 }
@@ -70,7 +79,7 @@ export const GeyserConverter = {
         // ===== 方块 =====
         for (const bs of generated.blockStates) {
             const baseName = modelBaseName(bs.model);
-            const javaModel = loadJavaModel(contentsDir, bs.model);
+            const javaModel = loadJavaModel(contentsDir, bs.model, zipAssets);
             if (!javaModel) { console.warn(`[geyser] 找不到模型: ${bs.model}`); continue; }
 
             const identifier = `geometry.${namespace}.${baseName}`;
@@ -94,7 +103,7 @@ export const GeyserConverter = {
             for (const face in conv.materials) {
                 const m = conv.materials[face];
                 if (!m.texture) continue;
-                const key = addTexture(m.texture, "block");
+                const key = addTexture(resolveIndirectTextureRef(m.texture, namespace, baseName), "block");
                 const inst: GeyserMaterialInstance = {
                     texture: key,
                     render_method: (m.render_method as any) || "opaque",
@@ -111,7 +120,8 @@ export const GeyserConverter = {
                 continue;
             }
 
-            const iaItem = iaItems[baseName] as any;
+            const modelPath = bs.model.includes(":") ? bs.model.slice(bs.model.indexOf(":") + 1) : bs.model;
+            const iaItem = (byModelPath.get(modelPath)?.item ?? iaItems[baseName]) as any;
             // IA 方块选项：新 schema behaviours.block / 旧 schema specific_properties.block 都兼容
             const blockOpts = iaItem?.behaviours?.block ?? iaItem?.specific_properties?.block;
             const placedType: string | undefined = blockOpts?.placed_model?.type;
@@ -136,6 +146,8 @@ export const GeyserConverter = {
             };
             // 硬度 → 挖掘时间（不给则 Geyser 默认 MAX≈不可破，必须映射）
             if (typeof blockOpts?.hardness === "number") entry.destructibleByMining = blockOpts.hardness;
+            const isMmoItemsBlockSkin = String(iaItem?.mmoitem?.type ?? "").toUpperCase() === "BLOCK" && !blockOpts;
+            if (isMmoItemsBlockSkin) entry.destructibleByMining = -1;
             // 发光等级 → light_emission
             if (typeof blockOpts?.light_level === "number" && blockOpts.light_level > 0) {
                 entry.lightEmission = Math.min(15, blockOpts.light_level);
@@ -152,17 +164,25 @@ export const GeyserConverter = {
         // ===== 物品 =====
         for (const ov of generated.itemOverrides) {
             const modelPath = ov.model.includes(":") ? ov.model.slice(ov.model.indexOf(":") + 1) : ov.model;
-            const iaMatch = byModelPath.get(modelPath);
-            const itemId = iaMatch?.id ?? modelBaseName(ov.model);
+            // ia_auto 物品在 IA 配置里没有 resource.model_path（如 ores_and_more），
+            // 按模型 basename 直接匹配物品 id（方块分支已有同款回退），否则 display_name 会丢。
+            const byPath = byModelPath.get(modelPath);
+            const fallbackId = modelBaseName(ov.model);
+            const fallbackItem = byPath ? undefined : (iaItems as any)[fallbackId];
+            const iaMatch = byPath ?? (fallbackItem
+                ? { id: fallbackId, display_name: fallbackItem.display_name, item: fallbackItem }
+                : undefined);
+            const itemId = iaMatch?.id ?? fallbackId;
 
-            const itemModel = loadJavaModel(contentsDir, ov.model);
+            const itemModel = loadJavaModel(contentsDir, ov.model, zipAssets);
             if (!itemModel) { console.warn(`[geyser] 找不到物品模型: ${ov.model}`); continue; }
 
             const baseName = modelBaseName(ov.model);
             // 命名：与方块同名则加 _item 后缀，避免基岩标识符冲突
             const name = blockNames.has(itemId) ? `${itemId}_item` : itemId;
             const displayName = iaMatch?.display_name ? stripColorCodes(iaMatch.display_name) : undefined;
-            const layer0 = itemModel?.textures?.layer0;
+            const layer0Raw = itemModel?.textures?.layer0;
+            const layer0 = layer0Raw ? resolveIndirectTextureRef(layer0Raw, namespace, baseName) : layer0Raw;
 
             // 武器型识别：无 layer0 但含 elements（3D 手持模型）→ 烘焙 attachable 三件套
             const isWeapon = !layer0 && Array.isArray(itemModel.elements) && itemModel.elements.length > 0;
@@ -179,11 +199,12 @@ export const GeyserConverter = {
                     geoTexRef = (itemModel.textures as any)[k]; break;
                 }
                 if (!geoTexRef) { console.warn(`[geyser] 武器无几何贴图: ${ov.model}`); continue; }
+                geoTexRef = resolveIndirectTextureRef(geoTexRef, namespace, baseName);
                 const geoBase = modelBaseName(geoTexRef);
                 const geoTexPath = `textures/items/${geoBase}`;
                 const geoSeenKey = `geo:${geoTexPath}`;
                 if (!texSeen.has(geoSeenKey)) {
-                    const png = loadTexturePng(contentsDir, geoTexRef);
+                    const png = loadTexturePng(contentsDir, geoTexRef, zipAssets);
                     if (png) {
                         pack.textures.push({ key: `${namespace}_${geoBase}__geo`, bedrockPath: geoTexPath, content: png, kind: "item-geometry" });
                         texSeen.add(geoSeenKey);
@@ -215,21 +236,37 @@ export const GeyserConverter = {
                 pack.items.push({
                     baseMaterial: ov.baseMaterial, name, displayName,
                     icon: iconKey, customModelData: ov.customModelData,
-                    allowOffhand: true, displayHandheld: true,
+                    allowOffhand: false, displayHandheld: true,
                 });
                 continue;
             }
 
             // ===== 普通 sprite 物品 =====
-            if (!layer0) { console.warn(`[geyser] 物品模型无 layer0 且非武器: ${ov.model}`); continue; }
-            const iconKey = addTexture(layer0, "item");
+            // 方块物品：IA 的 REAL_NOTE / REAL 系列物品，其物品模型就是方块模型（无 layer0）。
+            // 取模型首个非 particle 纹理当图标，否则基岩端只能显示原版材质。
+            let spriteRef: string | undefined = typeof layer0 === "string" ? layer0 : undefined;
+            if (!spriteRef) {
+                const parent = typeof itemModel?.parent === "string" ? itemModel.parent : "";
+                const looksLikeBlockModel = parent.includes("block/") || Array.isArray(itemModel?.elements);
+                if (!looksLikeBlockModel) {
+                    console.warn(`[geyser] 物品模型无 layer0 且非武器: ${ov.model}`);
+                    continue;
+                }
+                for (const k in (itemModel.textures ?? {})) {
+                    if (k === "particle") continue;
+                    spriteRef = resolveIndirectTextureRef((itemModel.textures as any)[k], namespace, baseName);
+                    break;
+                }
+            }
+            if (!spriteRef) { console.warn(`[geyser] 物品模型无可用贴图: ${ov.model}`); continue; }
+            const iconKey = addTexture(spriteRef, "item");
             const entry: GeyserItemEntry = {
                 baseMaterial: ov.baseMaterial,
                 name,
                 displayName,
                 icon: iconKey,
                 customModelData: ov.customModelData,
-                allowOffhand: true,
+                allowOffhand: false,
             };
             pack.items.push(entry);
         }

@@ -55,20 +55,34 @@ items:
       block:
         placed_model: { type: REAL_WIRE }
         hardness: 0
+  mmo_skin:
+    display_name: "MMO Skin"
+    mmoitem: { type: BLOCK, id: '4' }
+    resource: { material: STONE, model_path: block/mmo_skin }
   widget:
     display_name: "&bWidget"
     resource: { material: PAPER, model_path: item/widget_flat }
+  test_blade:
+    display_name: "&cTest Blade"
+    resource: { material: IRON_SWORD, model_path: item/test_blade }
 `);
 
     // models
     w(path.join(asset, "models", "block", "cube_block.json"), JSON.stringify({ parent: "minecraft:block/cube_all", textures: { all: "test:block/cube_block" } }));
     w(path.join(asset, "models", "block", "glass_block.json"), JSON.stringify({ parent: "minecraft:block/cube_all", textures: { all: "test:block/glass_block" } }));
     w(path.join(asset, "models", "block", "plant.json"), JSON.stringify({ parent: "minecraft:block/cross", textures: { cross: "test:block/plant" } }));
+    w(path.join(asset, "models", "block", "mmo_skin.json"), JSON.stringify({ parent: "minecraft:block/cube_all", textures: { all: "test:block/mmo_skin" } }));
     w(path.join(asset, "models", "item", "widget_flat.json"), JSON.stringify({ parent: "minecraft:item/generated", textures: { layer0: "test:item/widget" } }));
+    w(path.join(asset, "models", "item", "test_blade.json"), JSON.stringify({
+        textures: { blade: "test:item/test_blade" },
+        elements: [{ from: [0, 0, 0], to: [1, 16, 1] }],
+    }));
 
     // textures
-    for (const t of ["cube_block", "glass_block", "plant"]) w(path.join(asset, "textures", "block", `${t}.png`), PNG);
+    for (const t of ["cube_block", "glass_block", "plant", "mmo_skin"]) w(path.join(asset, "textures", "block", `${t}.png`), PNG);
     w(path.join(asset, "textures", "item", "widget.png"), PNG);
+    w(path.join(asset, "textures", "item", "test_blade.png"), PNG);
+    w(path.join(contentsDir, ns, "geyser_icons", "test_blade.png"), PNG);
 });
 
 afterAll(() => {
@@ -79,6 +93,18 @@ afterAll(() => {
 const geometryConvert = (m: any, o: any) => {
     const parent = String(m?.parent || "").split(":").pop();
     if (parent === "item/generated") return { geometry: undefined, materials: {}, isItemSprite: true };
+    if (Array.isArray(m?.elements) && m.elements.length > 0) {
+        return {
+            geometry: {
+                format_version: "1.16.0",
+                "minecraft:geometry": [{
+                    description: { identifier: o.identifier },
+                    bones: [{ name: "root", cubes: [] }],
+                }],
+            },
+            materials: { "*": { texture: m.textures.blade, render_method: "alpha_test" } },
+        };
+    }
     if (parent === "block/cross") {
         return {
             geometry: { format_version: "1.16.0", "minecraft:geometry": [{ description: { identifier: o.identifier } }] },
@@ -94,9 +120,11 @@ const GENERATED = {
         { hostBlock: "minecraft:note_block", rawVariant: "instrument=harp,note=0,powered=false", model: "test:block/cube_block" },
         { hostBlock: "minecraft:note_block", rawVariant: "instrument=harp,note=1,powered=false", model: "test:block/glass_block" },
         { hostBlock: "minecraft:tripwire", rawVariant: "attached=false,east=false,north=false,south=false,disarmed=false,west=false,powered=true", model: "test:block/plant" },
+        { hostBlock: "minecraft:brown_mushroom_block", rawVariant: "down=false,east=false,north=true,south=false,up=false,west=false", model: "test:block/mmo_skin" },
     ],
     itemOverrides: [
         { baseMaterial: "minecraft:paper", customModelData: 5001, model: "test:item/widget_flat" },
+        { baseMaterial: "minecraft:iron_sword", customModelData: 6001, model: "test:item/test_blade" },
     ],
 };
 
@@ -123,13 +151,36 @@ describe("GeyserConverter M2 覆盖", () => {
         expect(byName.plant.destructibleByMining).toBe(0);
     });
 
-    it("物品映射：base material + CMD，无同名方块则不加 _item", () => {
+    it("MMOItems skin-only 方块不需要 IA hardness 也会禁用基岩原版完成", () => {
         const pack = GeyserConverter.convert(GENERATED as any, { namespace: "test", contentsDir, geometryConvert: geometryConvert as any });
-        expect(pack.items.length).toBe(1);
-        expect(pack.items[0].baseMaterial).toBe("minecraft:paper");
-        expect(pack.items[0].customModelData).toBe(5001);
-        expect(pack.items[0].name).toBe("widget");
-        expect(pack.items[0].displayName).toBe("Widget");
+        const skin = pack.blocks.find(block => block.name === "mmo_skin");
+
+        expect(skin?.displayName).toBe("MMO Skin");
+        expect(skin?.destructibleByMining).toBe(-1);
+    });
+
+    it("物品映射：sprite 与 3D 武器默认禁用副手并保留关键字段", () => {
+        const pack = GeyserConverter.convert(GENERATED as any, { namespace: "test", contentsDir, geometryConvert: geometryConvert as any });
+        expect(pack.items.length).toBe(2);
+
+        const widget = pack.items.find(item => item.name === "widget");
+        expect(widget).toMatchObject({
+            baseMaterial: "minecraft:paper",
+            customModelData: 5001,
+            displayName: "Widget",
+            icon: "test_widget",
+            allowOffhand: false,
+        });
+
+        const blade = pack.items.find(item => item.name === "test_blade");
+        expect(blade).toMatchObject({
+            baseMaterial: "minecraft:iron_sword",
+            customModelData: 6001,
+            displayName: "Test Blade",
+            icon: "test_test_blade",
+            allowOffhand: false,
+            displayHandheld: true,
+        });
     });
 
     it("EncoderGeyser 多块同 host 分组到 state_overrides", async () => {
@@ -146,8 +197,26 @@ describe("GeyserConverter M2 覆盖", () => {
         ]);
         // tripwire 上 1 个
         expect(Object.keys(mapping.blocks["minecraft:tripwire"].state_overrides).length).toBe(1);
+        expect(
+            mapping.blocks["minecraft:brown_mushroom_block"].state_overrides[
+                "down=false,east=false,north=true,south=false,up=false,west=false"
+            ].destructible_by_mining
+        ).toBe(-1);
         // 物品分组
         expect(mapping.items["minecraft:paper"].length).toBe(1);
+        expect(mapping.items["minecraft:paper"][0]).toMatchObject({
+            name: "widget",
+            icon: "test_widget",
+            custom_model_data: 5001,
+            allow_offhand: false,
+        });
+        expect(mapping.items["minecraft:iron_sword"][0]).toMatchObject({
+            name: "test_blade",
+            icon: "test_test_blade",
+            custom_model_data: 6001,
+            allow_offhand: false,
+            display_handheld: true,
+        });
     });
 });
 

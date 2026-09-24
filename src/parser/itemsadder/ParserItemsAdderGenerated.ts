@@ -40,6 +40,11 @@ export interface BedrockPassthroughFile {
     content: Buffer;   // 原始字节（JSON / PNG / …）
 }
 
+export interface ModUiAssetFile {
+    relPath: string;   // 基岩包内路径，固定以 textures/ui/ 开头
+    content: Buffer;
+}
+
 function extractVariantModels(value: unknown): string[] {
     const out: string[] = [];
     if (Array.isArray(value)) {
@@ -168,6 +173,26 @@ export function extractBedrockPack(zipPath: string): BedrockPassthroughFile[] {
             const bpRoot = path.join(assetsRoot, assetNs, "bedrock_pack");
             try { if (!fs.statSync(bpRoot).isDirectory()) continue; } catch { continue; }
             collectTree(bpRoot, "", out);
+        }
+    } finally {
+        try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+    return out;
+}
+
+/**
+ * 从 generated.zip 提取 Java ModUI 贴图树，并映射成基岩包中的 textures/ui/**。
+ * 只读取该前缀，manifest、字体、声音和 UI 控制 JSON 都不会进入覆盖层。
+ */
+export function extractModUiAssets(zipPath: string): ModUiAssetFile[] {
+    const out: ModUiAssetFile[] = [];
+    const tmp = extractEntries(zipPath, ["assets/minecraft/textures/ui/*"]);
+    try {
+        const uiRoot = path.join(tmp, "assets", "minecraft", "textures", "ui");
+        const extracted: BedrockPassthroughFile[] = [];
+        collectTree(uiRoot, "", extracted);
+        for (const file of extracted) {
+            out.push({ relPath: `textures/ui/${file.relPath}`, content: file.content });
         }
     } finally {
         try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }

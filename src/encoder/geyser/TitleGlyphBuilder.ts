@@ -9,7 +9,10 @@ import sharp from "sharp";
 export const TITLE_MANIFEST = "textures/ui/skyblock/titles/glyphs/mapping.json";
 export const TITLE_PAGE = "font/glyph_E3.png";
 const JAVA_ROOT = "assets/minecraft/";
-const RESERVATIONS: Record<string, number> = { sprout: 0xE300, island: 0xE301, harvest: 0xE302, night: 0xE303 };
+const RESERVATIONS: Record<string, number> = {
+    sprout: 0xE300, island: 0xE301, harvest: 0xE302, night: 0xE303,
+    first_light: 0xE304, cloud_dream: 0xE305, old_friends: 0xE306,
+};
 
 export interface TitleGlyph {
     id: string;
